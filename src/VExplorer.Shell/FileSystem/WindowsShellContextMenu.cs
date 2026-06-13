@@ -167,7 +167,7 @@ public sealed class WindowsShellContextMenu : IShellContextMenu
         );
     }
 
-    // ── Session ──────────────────────────────────────────────────────────────
+    
 
     private sealed class ShellMenuSession : IShellMenuSession
     {

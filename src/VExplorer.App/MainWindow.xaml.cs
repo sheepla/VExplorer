@@ -187,7 +187,7 @@ public partial class MainWindow : Window
         _hwnd = new WindowInteropHelper(this).Handle;
     }
 
-    // ── Keyboard dispatch ─────────────────────────────────────────────────
+    
 
     private void OnWindowKeyDown(object sender, KeyEventArgs e)
     {
@@ -352,7 +352,7 @@ public partial class MainWindow : Window
 
         switch (e.Key)
         {
-            // ── Cursor down ───────────────────────────────────────────────
+            
             case Key.J when noMod:
             case Key.Down when noMod:
                 if (focus == VFocus.List)
@@ -367,7 +367,7 @@ public partial class MainWindow : Window
                 e.Handled = true;
                 break;
 
-            // ── Cursor up ─────────────────────────────────────────────────
+            
             case Key.K when noMod:
             case Key.Up when noMod:
                 if (focus == VFocus.List)

@@ -330,7 +330,7 @@ public sealed class FileOpsService(
         return newName.Length > 0 && parent.Length > 0 && Directory.Exists(parent);
     }
 
-    // ── Undo/redo recording ────────────────────────────────────────────────
+    
 
     private void PushCopyTo(string source, string destParent, string newName)
     {

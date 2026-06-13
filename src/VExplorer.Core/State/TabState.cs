@@ -94,7 +94,7 @@ public sealed class TabState : IDisposable
         NavigateTo(Location.ForPath(path));
     }
 
-    // ── Navigation history (back / forward) ────────────────────────────────
+    
 
     /// <summary>The visited locations, oldest first (for address-bar history candidates).</summary>
     public IReadOnlyList<Location> History => _history;

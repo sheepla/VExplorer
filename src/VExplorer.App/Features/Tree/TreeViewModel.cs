@@ -48,7 +48,7 @@ public sealed partial class TreeViewModel : ObservableObject, IDisposable
     /// <summary>The visible (non-placeholder, depth-first) nodes — used for scroll margin.</summary>
     public IReadOnlyList<TreeNodeViewModel> VisibleNodes => GetVisibleNodes();
 
-    // ── Cursor movement ────────────────────────────────────────────────────
+    
 
     public void MoveCursorToTop()
     {

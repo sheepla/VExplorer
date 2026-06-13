@@ -203,7 +203,7 @@ public sealed partial class ContextMenuViewModel : ObservableObject
         _session = null;
     }
 
-    // ── Helpers ────────────────────────────────────────────────────────────
+    
 
     private void PushColumn(IReadOnlyList<MenuItemViewModel> items)
     {
