@@ -1,0 +1,488 @@
+<Window
+  x:Class="VExplorer.App.MainWindow"
+  xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+  xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+  xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+  xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+  xmlns:addr="clr-namespace:VExplorer.App.Features.AddressBar"
+  xmlns:cmd="clr-namespace:VExplorer.App.Features.CommandBar"
+  xmlns:search="clr-namespace:VExplorer.App.Features.Search"
+  xmlns:fl="clr-namespace:VExplorer.App.Features.FileList"
+  xmlns:tabs="clr-namespace:VExplorer.App.Features.Tabs"
+  mc:Ignorable="d"
+  Title="{Binding Title}"
+  Height="600"
+  Width="1000"
+  KeyboardNavigation.TabNavigation="None"
+>
+  <DockPanel>
+    <!-- Tab strip at the very top; the single address bar below reflects the active tab. -->
+    <tabs:TabBar DockPanel.Dock="Top" DataContext="{Binding TabBar}" />
+
+    <!-- Toolbar row: navigation icons | address bar | mode icons. -->
+    <DockPanel DockPanel.Dock="Top" Margin="0,0,0,1">
+      <DockPanel.Resources>
+        <Style x:Key="IconButton" TargetType="Button">
+          <Setter Property="FontFamily" Value="Segoe MDL2 Assets" />
+          <Setter Property="FontSize" Value="14" />
+          <Setter Property="Width" Value="28" />
+          <Setter Property="Height" Value="26" />
+          <Setter Property="Padding" Value="0" />
+          <Setter Property="BorderThickness" Value="0" />
+          <Setter Property="Background" Value="Transparent" />
+          <Setter Property="Foreground" Value="#444444" />
+        </Style>
+      </DockPanel.Resources>
+
+      <StackPanel DockPanel.Dock="Left" Orientation="Horizontal" Margin="0,0,4,0">
+        <Button
+          Style="{StaticResource IconButton}"
+          Content="&#xE76B;"
+          ToolTip="Back"
+          Click="NavBack_Click"
+        />
+        <Button
+          Style="{StaticResource IconButton}"
+          Content="&#xE76C;"
+          ToolTip="Forward"
+          Click="NavForward_Click"
+        />
+        <Button
+          Style="{StaticResource IconButton}"
+          Content="&#xE70E;"
+          ToolTip="Up"
+          Click="NavParent_Click"
+        />
+        <Button
+          Style="{StaticResource IconButton}"
+          Content="&#xE80F;"
+          ToolTip="Home"
+          Click="NavHome_Click"
+        />
+        <Button
+          Style="{StaticResource IconButton}"
+          Content="&#xE72C;"
+          ToolTip="Reload"
+          Click="NavReload_Click"
+        />
+      </StackPanel>
+
+      <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Margin="4,0,0,0">
+        <Button
+          Style="{StaticResource IconButton}"
+          Content="&#xE71C;"
+          ToolTip="Filter (f)"
+          Click="OpenFilter_Click"
+        />
+        <Button
+          Style="{StaticResource IconButton}"
+          Content="&#xE721;"
+          ToolTip="Search (/)"
+          Click="OpenSearch_Click"
+        />
+      </StackPanel>
+
+      <!-- Always-visible address bar (fills remaining width). -->
+      <addr:AddressBar x:Name="AddressBarControl" DataContext="{Binding AddressBar}" />
+    </DockPanel>
+
+    <!-- Thin loading indicator just under the toolbar; shown only while the active
+         tab is (re-)listing (e.g. a large folder still enumerating). -->
+    <ProgressBar
+      DockPanel.Dock="Top"
+      Height="2"
+      IsIndeterminate="{Binding IsLoading}"
+      Visibility="{Binding IsLoading, Converter={StaticResource BoolToVisibility}}"
+      BorderThickness="0"
+      Background="Transparent"
+      Foreground="#0078D4"
+    />
+
+    <!-- Command bar (Vim-style ":") docks at the very bottom; hidden unless active.
+         Declared before the StatusBar so it docks below it. -->
+    <cmd:CommandBar
+      x:Name="CommandBarControl"
+      DockPanel.Dock="Bottom"
+      DataContext="{Binding CommandBar}"
+    />
+
+    <!-- SEARCH ("/") / FILTER (Shift+F) one-line bar; hidden unless active. -->
+    <search:SearchFilterBar
+      x:Name="SearchFilterBarControl"
+      DockPanel.Dock="Bottom"
+      DataContext="{Binding SearchFilterBar}"
+    />
+
+    <StatusBar DockPanel.Dock="Bottom">
+      <StatusBarItem>
+        <TextBlock
+          Text="{Binding StatusBar.ModeLabel}"
+          MinWidth="80"
+          FontWeight="Bold"
+          HorizontalAlignment="Stretch"
+          TextAlignment="Center"
+        />
+      </StatusBarItem>
+      <Separator />
+      <StatusBarItem>
+        <!-- Errors shown in red; informational messages use the default colour. -->
+        <TextBlock Text="{Binding StatusBar.StatusText}">
+          <TextBlock.Style>
+            <Style TargetType="TextBlock">
+              <Style.Triggers>
+                <DataTrigger Binding="{Binding StatusBar.IsError}" Value="True">
+                  <Setter Property="Foreground" Value="#CC3333" />
+                </DataTrigger>
+              </Style.Triggers>
+            </Style>
+          </TextBlock.Style>
+        </TextBlock>
+      </StatusBarItem>
+      <!-- Right-aligned item/selection count. -->
+      <StatusBarItem HorizontalAlignment="Right">
+        <TextBlock Text="{Binding StatusBar.CountDisplay}" Foreground="#666666" />
+      </StatusBarItem>
+    </StatusBar>
+
+    <Grid>
+      <Grid.ColumnDefinitions>
+        <ColumnDefinition Width="200" MinWidth="80" />
+        <ColumnDefinition Width="5" />
+        <ColumnDefinition Width="*" MinWidth="200" />
+        <!-- Preview pane hidden by default (splitter + column collapsed to 0). -->
+        <ColumnDefinition Width="0" />
+        <ColumnDefinition Width="0" MinWidth="0" />
+      </Grid.ColumnDefinitions>
+
+      <!--
+        Border highlights the focused panel with a thin blue outline.
+        HorizontalScrollBarVisibility=Disabled keeps text left-aligned and
+        suppresses the horizontal scrollbar for long folder names.
+      -->
+      <Border Grid.Column="0" BorderThickness="1" Padding="0">
+        <Border.Style>
+          <Style TargetType="Border">
+            <Setter Property="BorderBrush" Value="Transparent" />
+            <Style.Triggers>
+              <DataTrigger Binding="{Binding IsTreeFocused}" Value="True">
+                <Setter Property="BorderBrush" Value="#0078D4" />
+              </DataTrigger>
+            </Style.Triggers>
+          </Style>
+        </Border.Style>
+        <TreeView
+          x:Name="FileTree"
+          ItemsSource="{Binding Tree.Roots}"
+          SelectedItemChanged="FileTree_SelectedItemChanged"
+          PreviewMouseDown="FileTree_PreviewMouseDown"
+          MouseDoubleClick="FileTree_MouseDoubleClick"
+          AllowDrop="True"
+          DragOver="Panel_DragOver"
+          Drop="FileTree_Drop"
+          VirtualizingPanel.IsVirtualizing="False"
+          ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+        >
+          <!-- Selection stays blue+white even when the panel is unfocused (Win10 style). -->
+          <TreeView.Resources>
+            <SolidColorBrush x:Key="{x:Static SystemColors.HighlightBrushKey}" Color="#0078D7" />
+            <SolidColorBrush x:Key="{x:Static SystemColors.HighlightTextBrushKey}" Color="White" />
+            <SolidColorBrush
+              x:Key="{x:Static SystemColors.InactiveSelectionHighlightBrushKey}"
+              Color="#0078D7"
+            />
+            <SolidColorBrush
+              x:Key="{x:Static SystemColors.InactiveSelectionHighlightTextBrushKey}"
+              Color="White"
+            />
+          </TreeView.Resources>
+          <TreeView.ItemContainerStyle>
+            <Style TargetType="TreeViewItem">
+              <Setter Property="IsExpanded" Value="{Binding IsExpanded, Mode=TwoWay}" />
+              <Setter Property="IsSelected" Value="{Binding IsSelected, Mode=TwoWay}" />
+            </Style>
+          </TreeView.ItemContainerStyle>
+          <TreeView.ItemTemplate>
+            <HierarchicalDataTemplate ItemsSource="{Binding Children}">
+              <StackPanel Orientation="Horizontal">
+                <Image
+                  Source="{Binding Icon}"
+                  Width="16"
+                  Height="16"
+                  Margin="0,0,4,0"
+                  VerticalAlignment="Center"
+                  SnapsToDevicePixels="True"
+                  RenderOptions.BitmapScalingMode="NearestNeighbor"
+                />
+                <TextBlock Text="{Binding DisplayName}" VerticalAlignment="Center" />
+              </StackPanel>
+            </HierarchicalDataTemplate>
+          </TreeView.ItemTemplate>
+        </TreeView>
+      </Border>
+
+      <GridSplitter Grid.Column="1" Width="5" HorizontalAlignment="Stretch" Background="#DDDDDD" />
+
+      <!-- Border highlights the focused List panel. -->
+      <Border Grid.Column="2" BorderThickness="1" Padding="0">
+        <Border.Style>
+          <Style TargetType="Border">
+            <Setter Property="BorderBrush" Value="Transparent" />
+            <Style.Triggers>
+              <DataTrigger Binding="{Binding IsListFocused}" Value="True">
+                <Setter Property="BorderBrush" Value="#0078D4" />
+              </DataTrigger>
+            </Style.Triggers>
+          </Style>
+        </Border.Style>
+        <ListView
+          x:Name="FileList"
+          ItemsSource="{Binding FileList.DisplayItems}"
+          SelectedIndex="{Binding FileList.CursorIndex, Mode=TwoWay}"
+          PreviewMouseDown="FileList_PreviewMouseDown"
+          PreviewMouseMove="FileList_PreviewMouseMove"
+          PreviewMouseRightButtonUp="FileList_PreviewMouseRightButtonUp"
+          MouseDoubleClick="FileList_MouseDoubleClick"
+          GridViewColumnHeader.Click="FileList_ColumnHeader_Click"
+          AllowDrop="True"
+          DragOver="Panel_DragOver"
+          Drop="FileList_Drop"
+          VirtualizingPanel.IsVirtualizing="True"
+          VirtualizingPanel.VirtualizationMode="Recycling"
+          ScrollViewer.CanContentScroll="True"
+        >
+          <!-- Selection stays blue+white even when the panel is unfocused (Win10 style). -->
+          <ListView.Resources>
+            <SolidColorBrush x:Key="{x:Static SystemColors.HighlightBrushKey}" Color="#0078D7" />
+            <SolidColorBrush x:Key="{x:Static SystemColors.HighlightTextBrushKey}" Color="White" />
+            <SolidColorBrush
+              x:Key="{x:Static SystemColors.InactiveSelectionHighlightBrushKey}"
+              Color="#0078D7"
+            />
+            <SolidColorBrush
+              x:Key="{x:Static SystemColors.InactiveSelectionHighlightTextBrushKey}"
+              Color="White"
+            />
+          </ListView.Resources>
+          <!-- Multi-selection highlight (distinct from the single cursor row). -->
+          <ListView.ItemContainerStyle>
+            <Style TargetType="ListViewItem">
+              <Style.Triggers>
+                <DataTrigger Binding="{Binding IsSelected}" Value="True">
+                  <Setter Property="Background" Value="#CCE4F7" />
+                </DataTrigger>
+                <!-- Hidden / system files render dimmed (Explorer-style ghosting). -->
+                <DataTrigger Binding="{Binding IsDimmed}" Value="True">
+                  <Setter Property="Foreground" Value="#FF8A8A8A" />
+                </DataTrigger>
+              </Style.Triggers>
+            </Style>
+          </ListView.ItemContainerStyle>
+          <ListView.View>
+            <GridView>
+              <!-- Name column -->
+              <GridViewColumn Width="280">
+                <GridViewColumn.Header>
+                  <GridViewColumnHeader Tag="Name">Name</GridViewColumnHeader>
+                </GridViewColumn.Header>
+                <GridViewColumn.CellTemplate>
+                  <DataTemplate>
+                    <StackPanel Orientation="Horizontal">
+                      <Image
+                        Source="{Binding Icon}"
+                        Width="16"
+                        Height="16"
+                        Margin="0,0,4,0"
+                        VerticalAlignment="Center"
+                        SnapsToDevicePixels="True"
+                        RenderOptions.BitmapScalingMode="NearestNeighbor"
+                      >
+                        <Image.Style>
+                          <Style TargetType="Image">
+                            <Style.Triggers>
+                              <!-- Faint icon for hidden / system files (matches the dimmed text). -->
+                              <DataTrigger Binding="{Binding IsDimmed}" Value="True">
+                                <Setter Property="Opacity" Value="0.5" />
+                              </DataTrigger>
+                            </Style.Triggers>
+                          </Style>
+                        </Image.Style>
+                      </Image>
+                      <Grid VerticalAlignment="Center">
+                        <TextBlock
+                          fl:HighlightBehavior.Text="{Binding DisplayLabel}"
+                          fl:HighlightBehavior.Query="{Binding DataContext.FileList.HighlightQuery, RelativeSource={RelativeSource AncestorType=ListView}}"
+                          Visibility="{Binding IsEditing, Converter={StaticResource InverseBoolToVisibility}}"
+                        />
+                        <!-- Inline rename (F2). Focuses itself when shown; handlers in code-behind. -->
+                        <TextBox
+                          Text="{Binding EditName, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                          Visibility="{Binding IsEditing, Converter={StaticResource BoolToVisibility}}"
+                          IsVisibleChanged="RenameBox_IsVisibleChanged"
+                          PreviewKeyDown="RenameBox_KeyDown"
+                          LostKeyboardFocus="RenameBox_LostFocus"
+                        />
+                      </Grid>
+                    </StackPanel>
+                  </DataTemplate>
+                </GridViewColumn.CellTemplate>
+              </GridViewColumn>
+
+              <!-- Size column — right-aligned -->
+              <GridViewColumn Width="80">
+                <GridViewColumn.Header>
+                  <GridViewColumnHeader Tag="Size">Size</GridViewColumnHeader>
+                </GridViewColumn.Header>
+                <GridViewColumn.CellTemplate>
+                  <DataTemplate>
+                    <TextBlock
+                      Text="{Binding SizeDisplay}"
+                      TextAlignment="Right"
+                      HorizontalAlignment="Right"
+                      MinWidth="70"
+                    />
+                  </DataTemplate>
+                </GridViewColumn.CellTemplate>
+              </GridViewColumn>
+
+              <!-- Modified column -->
+              <GridViewColumn Width="160">
+                <GridViewColumn.Header>
+                  <GridViewColumnHeader Tag="Modified">Modified</GridViewColumnHeader>
+                </GridViewColumn.Header>
+                <GridViewColumn.CellTemplate>
+                  <DataTemplate>
+                    <TextBlock Text="{Binding ModifiedDisplay}" />
+                  </DataTemplate>
+                </GridViewColumn.CellTemplate>
+              </GridViewColumn>
+
+              <!-- Type column -->
+              <GridViewColumn Width="110">
+                <GridViewColumn.Header>
+                  <GridViewColumnHeader Tag="Type">Type</GridViewColumnHeader>
+                </GridViewColumn.Header>
+                <GridViewColumn.CellTemplate>
+                  <DataTemplate>
+                    <TextBlock Text="{Binding TypeDisplay}" />
+                  </DataTemplate>
+                </GridViewColumn.CellTemplate>
+              </GridViewColumn>
+            </GridView>
+          </ListView.View>
+        </ListView>
+      </Border>
+
+      <!-- MENU mode: hjkl-navigable context menu. Keys are handled by the window;
+           the list only renders the current level (SelectedIndex = cursor). A Popup
+           is not laid out in the Grid, so its column is irrelevant. -->
+      <Popup
+        x:Name="ContextMenuPopup"
+        IsOpen="{Binding ContextMenu.IsOpen, Mode=TwoWay}"
+        PlacementTarget="{Binding ElementName=FileList}"
+        Placement="Relative"
+        HorizontalOffset="{Binding ContextMenu.AnchorX}"
+        VerticalOffset="{Binding ContextMenu.AnchorY}"
+        StaysOpen="False"
+        AllowsTransparency="True"
+        Closed="ContextMenuPopup_Closed"
+      >
+        <!-- Cascade: one column (ListBox) per open level, laid out left→right. -->
+        <ItemsControl ItemsSource="{Binding ContextMenu.Columns}">
+          <ItemsControl.ItemsPanel>
+            <ItemsPanelTemplate>
+              <StackPanel Orientation="Horizontal" />
+            </ItemsPanelTemplate>
+          </ItemsControl.ItemsPanel>
+          <ItemsControl.ItemTemplate>
+            <DataTemplate>
+              <Border
+                Background="White"
+                BorderBrush="#999999"
+                BorderThickness="1"
+                Padding="2"
+                Margin="0,0,1,0"
+                MinWidth="220"
+                MaxHeight="560"
+              >
+                <ListBox
+                  ItemsSource="{Binding Items}"
+                  SelectedIndex="{Binding SelectedIndex, Mode=TwoWay}"
+                  Focusable="False"
+                  BorderThickness="0"
+                  ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                  PreviewMouseLeftButtonUp="ContextMenuList_MouseUp"
+                  SelectionChanged="ContextMenuList_SelectionChanged"
+                >
+                  <ListBox.ItemContainerStyle>
+                    <Style TargetType="ListBoxItem">
+                      <Setter Property="Padding" Value="4,2" />
+                      <Style.Triggers>
+                        <DataTrigger Binding="{Binding IsSeparator}" Value="True">
+                          <Setter Property="IsHitTestVisible" Value="False" />
+                          <Setter Property="Focusable" Value="False" />
+                        </DataTrigger>
+                        <DataTrigger Binding="{Binding IsEnabled}" Value="False">
+                          <Setter Property="Foreground" Value="#9A9A9A" />
+                        </DataTrigger>
+                      </Style.Triggers>
+                    </Style>
+                  </ListBox.ItemContainerStyle>
+                  <ListBox.ItemTemplate>
+                    <DataTemplate>
+                      <Grid>
+                        <!-- Section rule: a real grey line (Separator ignores Background). -->
+                        <Border
+                          Height="1"
+                          Margin="6,4"
+                          Background="#D0D0D0"
+                          Visibility="{Binding IsSeparator, Converter={StaticResource BoolToVisibility}}"
+                        />
+                        <StackPanel
+                          Orientation="Horizontal"
+                          Visibility="{Binding IsSeparator, Converter={StaticResource InverseBoolToVisibility}}"
+                        >
+                          <Image
+                            Source="{Binding Icon}"
+                            Width="16"
+                            Height="16"
+                            Margin="0,0,6,0"
+                            VerticalAlignment="Center"
+                          />
+                          <TextBlock Text="{Binding Text}" VerticalAlignment="Center" />
+                          <TextBlock
+                            Text="  ▶"
+                            Foreground="#888888"
+                            VerticalAlignment="Center"
+                            Visibility="{Binding HasSubmenu, Converter={StaticResource BoolToVisibility}}"
+                          />
+                        </StackPanel>
+                      </Grid>
+                    </DataTemplate>
+                  </ListBox.ItemTemplate>
+                </ListBox>
+              </Border>
+            </DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
+      </Popup>
+
+      <GridSplitter
+        Grid.Column="3"
+        Width="5"
+        HorizontalAlignment="Stretch"
+        Background="#DDDDDD"
+        Visibility="Collapsed"
+      />
+
+      <Border Grid.Column="4" Background="#DDDDDD" Visibility="Collapsed">
+        <TextBlock
+          Text="Preview"
+          HorizontalAlignment="Center"
+          VerticalAlignment="Center"
+          Foreground="#AAAAAA"
+          FontSize="14"
+        />
+      </Border>
+    </Grid>
+  </DockPanel>
+</Window>

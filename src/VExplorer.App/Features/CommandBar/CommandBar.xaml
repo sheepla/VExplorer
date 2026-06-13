@@ -1,0 +1,77 @@
+<UserControl
+  x:Class="VExplorer.App.Features.CommandBar.CommandBar"
+  xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+  xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+  xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+  xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+  mc:Ignorable="d"
+  Visibility="{Binding IsActive, Converter={StaticResource BoolToVisibility}}"
+>
+  <Border BorderBrush="#0078D4" BorderThickness="0,1,0,0" Padding="4,3">
+    <Grid>
+      <Grid.ColumnDefinitions>
+        <ColumnDefinition Width="Auto" />
+        <ColumnDefinition Width="*" />
+      </Grid.ColumnDefinitions>
+
+      <!-- Static ":" prompt; the editable text is the command without the colon. -->
+      <TextBlock
+        Grid.Column="0"
+        Text=":"
+        FontFamily="Consolas"
+        FontWeight="Bold"
+        VerticalAlignment="Center"
+        Margin="2,0,4,0"
+      />
+
+      <TextBox
+        x:Name="CommandInput"
+        Grid.Column="1"
+        Text="{Binding Text, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+        PreviewKeyDown="CommandInput_PreviewKeyDown"
+        FontFamily="Consolas"
+        BorderThickness="0"
+        Background="Transparent"
+        VerticalContentAlignment="Center"
+      />
+
+      <!-- Completion popup opens upward (the bar sits at the window bottom). -->
+      <Popup
+        Grid.Column="1"
+        IsOpen="{Binding IsPopupOpen}"
+        PlacementTarget="{Binding ElementName=CommandInput}"
+        Placement="Top"
+        HorizontalOffset="0"
+        AllowsTransparency="True"
+        Focusable="False"
+        MaxHeight="320"
+      >
+        <Border
+          Background="White"
+          BorderBrush="#0078D4"
+          BorderThickness="1"
+          Width="{Binding ActualWidth, ElementName=CommandInput}"
+          HorizontalAlignment="Left"
+        >
+          <ListBox
+            x:Name="CandidateList"
+            ItemsSource="{Binding Candidates}"
+            SelectedIndex="{Binding SelectedCandidateIndex, Mode=TwoWay}"
+            PreviewMouseLeftButtonUp="CandidateList_PreviewMouseLeftButtonUp"
+            HorizontalContentAlignment="Left"
+            ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+          >
+            <ListBox.ItemTemplate>
+              <DataTemplate>
+                <StackPanel Orientation="Horizontal">
+                  <TextBlock Text="{Binding Icon}" Margin="0,0,6,0" />
+                  <TextBlock Text="{Binding DisplayName}" />
+                </StackPanel>
+              </DataTemplate>
+            </ListBox.ItemTemplate>
+          </ListBox>
+        </Border>
+      </Popup>
+    </Grid>
+  </Border>
+</UserControl>

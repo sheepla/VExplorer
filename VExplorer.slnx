@@ -1,0 +1,7 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/VExplorer.App/VExplorer.App.csproj" />
+    <Project Path="src/VExplorer.Core/VExplorer.Core.csproj" />
+    <Project Path="src/VExplorer.Shell/VExplorer.Shell.csproj" />
+  </Folder>
+</Solution>

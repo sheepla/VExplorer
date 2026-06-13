@@ -1,0 +1,122 @@
+<Window
+  x:Class="VExplorer.App.Features.Help.HelpWindow"
+  xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+  xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+  Title="VExplorer — Key &amp; Command Reference"
+  Width="980"
+  Height="640"
+  WindowStartupLocation="CenterOwner"
+  PreviewKeyDown="Window_PreviewKeyDown"
+  FontFamily="Consolas"
+  FontSize="12"
+>
+  <Window.Resources>
+    <!-- Shared column widths so the header band lines up with every row. -->
+    <GridLength x:Key="WAction">200</GridLength>
+    <GridLength x:Key="WVim">130</GridLength>
+    <GridLength x:Key="WWin">150</GridLength>
+    <GridLength x:Key="WCmd">230</GridLength>
+    <GridLength x:Key="WMenu">120</GridLength>
+
+    <Style x:Key="Cell" TargetType="TextBlock">
+      <Setter Property="Margin" Value="0,1,8,1" />
+      <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+    </Style>
+
+    <!-- One action row: six fixed-width cells. -->
+    <DataTemplate x:Key="RowTemplate">
+      <Grid Margin="12,0,0,0">
+        <Grid.ColumnDefinitions>
+          <ColumnDefinition Width="{StaticResource WAction}" />
+          <ColumnDefinition Width="{StaticResource WVim}" />
+          <ColumnDefinition Width="{StaticResource WWin}" />
+          <ColumnDefinition Width="{StaticResource WCmd}" />
+          <ColumnDefinition Width="{StaticResource WMenu}" />
+          <ColumnDefinition Width="*" />
+        </Grid.ColumnDefinitions>
+        <TextBlock Grid.Column="0" Style="{StaticResource Cell}" Text="{Binding Action}" />
+        <TextBlock
+          Grid.Column="1"
+          Style="{StaticResource Cell}"
+          Text="{Binding Vim}"
+          Foreground="#0078D4"
+        />
+        <TextBlock Grid.Column="2" Style="{StaticResource Cell}" Text="{Binding Windows}" />
+        <TextBlock
+          Grid.Column="3"
+          Style="{StaticResource Cell}"
+          Text="{Binding Command}"
+          Foreground="#107C10"
+        />
+        <TextBlock Grid.Column="4" Style="{StaticResource Cell}" Text="{Binding Menu}" />
+        <TextBlock Grid.Column="5" Style="{StaticResource Cell}" Text="{Binding Mouse}" />
+      </Grid>
+    </DataTemplate>
+
+    <!-- One topic section: a bold heading then its rows. -->
+    <DataTemplate x:Key="TopicTemplate">
+      <StackPanel Margin="0,10,0,0">
+        <TextBlock
+          Text="{Binding Title}"
+          FontWeight="Bold"
+          FontSize="13"
+          Foreground="#222222"
+          Margin="0,0,0,3"
+        />
+        <ItemsControl ItemsSource="{Binding Rows}" ItemTemplate="{StaticResource RowTemplate}" />
+      </StackPanel>
+    </DataTemplate>
+  </Window.Resources>
+
+  <Grid Margin="8">
+    <Grid.RowDefinitions>
+      <RowDefinition Height="Auto" />
+      <RowDefinition Height="Auto" />
+      <RowDefinition Height="*" />
+      <RowDefinition Height="Auto" />
+    </Grid.RowDefinitions>
+
+    <TextBlock
+      Grid.Row="0"
+      x:Name="Caption"
+      Margin="2,2,2,6"
+      FontWeight="Bold"
+      Text="Action × input route"
+    />
+
+    <!-- Column header band (stays put; the topics scroll beneath it). -->
+    <Grid Grid.Row="1" Margin="12,0,0,2">
+      <Grid.ColumnDefinitions>
+        <ColumnDefinition Width="{StaticResource WAction}" />
+        <ColumnDefinition Width="{StaticResource WVim}" />
+        <ColumnDefinition Width="{StaticResource WWin}" />
+        <ColumnDefinition Width="{StaticResource WCmd}" />
+        <ColumnDefinition Width="{StaticResource WMenu}" />
+        <ColumnDefinition Width="*" />
+      </Grid.ColumnDefinitions>
+      <TextBlock Grid.Column="0" Text="Action" FontWeight="Bold" />
+      <TextBlock Grid.Column="1" Text="Vim" FontWeight="Bold" />
+      <TextBlock Grid.Column="2" Text="Windows" FontWeight="Bold" />
+      <TextBlock Grid.Column="3" Text="COMMAND" FontWeight="Bold" />
+      <TextBlock Grid.Column="4" Text="Menu" FontWeight="Bold" />
+      <TextBlock Grid.Column="5" Text="Mouse" FontWeight="Bold" />
+    </Grid>
+
+    <ScrollViewer
+      Grid.Row="2"
+      x:Name="Scroller"
+      VerticalScrollBarVisibility="Auto"
+      CanContentScroll="False"
+      Focusable="False"
+    >
+      <ItemsControl x:Name="TopicList" ItemTemplate="{StaticResource TopicTemplate}" />
+    </ScrollViewer>
+
+    <TextBlock
+      Grid.Row="3"
+      Margin="2,6,2,0"
+      Foreground="#666666"
+      Text="j/k scroll · g/G top/bottom · Ctrl+D/U half page · q close"
+    />
+  </Grid>
+</Window>

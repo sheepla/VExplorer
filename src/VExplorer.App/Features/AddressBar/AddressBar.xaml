@@ -1,0 +1,80 @@
+<UserControl
+  x:Class="VExplorer.App.Features.AddressBar.AddressBar"
+  xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+  xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+  xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+  xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+  mc:Ignorable="d"
+>
+  <!-- Always-visible thin border so it reads as an address bar; blue while editing. -->
+  <Border BorderThickness="1" Padding="4,3" CornerRadius="2">
+    <Border.Style>
+      <Style TargetType="Border">
+        <Setter Property="BorderBrush" Value="#ADADAD" />
+        <Style.Triggers>
+          <DataTrigger Binding="{Binding IsActive}" Value="True">
+            <Setter Property="BorderBrush" Value="#0078D4" />
+          </DataTrigger>
+        </Style.Triggers>
+      </Style>
+    </Border.Style>
+    <Grid>
+      <!-- Plain path display when not editing; click to start editing. -->
+      <TextBlock
+        Text="{Binding Text}"
+        VerticalAlignment="Center"
+        HorizontalAlignment="Stretch"
+        Background="Transparent"
+        Padding="2,0"
+        MouseLeftButtonDown="Display_MouseLeftButtonDown"
+        Visibility="{Binding IsActive, Converter={StaticResource InverseBoolToVisibility}}"
+      />
+
+      <!-- Editable buffer (ADDRESS mode). PreviewKeyDown is handled in code-behind. -->
+      <TextBox
+        x:Name="AddressInput"
+        Text="{Binding Text, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+        PreviewKeyDown="AddressInput_PreviewKeyDown"
+        VerticalContentAlignment="Center"
+        Visibility="{Binding IsActive, Converter={StaticResource BoolToVisibility}}"
+      />
+
+      <!-- Completion popup, left-aligned to the input and matching its width. -->
+      <Popup
+        IsOpen="{Binding IsPopupOpen}"
+        PlacementTarget="{Binding ElementName=AddressInput}"
+        Placement="Bottom"
+        HorizontalOffset="0"
+        AllowsTransparency="True"
+        Focusable="False"
+        MaxHeight="320"
+      >
+        <Border
+          Background="White"
+          BorderBrush="#0078D4"
+          BorderThickness="1"
+          Width="{Binding ActualWidth, ElementName=AddressInput}"
+          HorizontalAlignment="Left"
+        >
+          <ListBox
+            x:Name="CandidateList"
+            ItemsSource="{Binding Candidates}"
+            SelectedIndex="{Binding SelectedCandidateIndex, Mode=TwoWay}"
+            PreviewMouseLeftButtonUp="CandidateList_PreviewMouseLeftButtonUp"
+            HorizontalContentAlignment="Left"
+            ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+          >
+            <ListBox.ItemTemplate>
+              <DataTemplate>
+                <StackPanel Orientation="Horizontal">
+                  <TextBlock Text="{Binding Icon}" Margin="0,0,6,0" />
+                  <TextBlock Text="{Binding DisplayName}" />
+                </StackPanel>
+              </DataTemplate>
+            </ListBox.ItemTemplate>
+          </ListBox>
+        </Border>
+      </Popup>
+    </Grid>
+  </Border>
+</UserControl>
