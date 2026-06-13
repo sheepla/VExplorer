@@ -149,8 +149,6 @@ public sealed class RecycleBinShell : IRecycleBinSource
         _byToken.Clear();
     }
 
-    ──────────────────
-
     private HashSet<string> ResolvePaths(IReadOnlyList<int> tokens)
     {
         HashSet<string> set = new(StringComparer.OrdinalIgnoreCase);
