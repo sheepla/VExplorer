@@ -18,7 +18,7 @@ All operations can be performed quickly using either the keyboard or mouse, comb
 
 ## Installation
 
-To build from source, run `dotnet publish` command.
+Requires .NET 10 SDK. To build from source, run `dotnet publish` command.
 
 ## Thanks
 
