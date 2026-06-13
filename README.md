@@ -1,6 +1,18 @@
+<div align="center">
+
 # VExplorer
 
+</div>
+
+<div align="center">
+
 VExplorer is a keyboard-driven file manager for Windows.
+
+</div>
+
+<div align="center">
+  <img width="70%" src="./assets/screenshot.png">
+</div>
 
 ## Features
 
