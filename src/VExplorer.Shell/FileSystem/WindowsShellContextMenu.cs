@@ -167,8 +167,6 @@ public sealed class WindowsShellContextMenu : IShellContextMenu
         );
     }
 
-    
-
     private sealed class ShellMenuSession : IShellMenuSession
     {
         private readonly record struct ItemRef(int ShellCmd, nint SubMenu);

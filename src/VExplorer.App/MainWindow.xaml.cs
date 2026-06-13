@@ -187,8 +187,6 @@ public partial class MainWindow : Window
         _hwnd = new WindowInteropHelper(this).Handle;
     }
 
-    
-
     private void OnWindowKeyDown(object sender, KeyEventArgs e)
     {
         TabState tabState = _tabManager.GetActiveTabState();
@@ -352,7 +350,6 @@ public partial class MainWindow : Window
 
         switch (e.Key)
         {
-            
             case Key.J when noMod:
             case Key.Down when noMod:
                 if (focus == VFocus.List)
@@ -367,7 +364,6 @@ public partial class MainWindow : Window
                 e.Handled = true;
                 break;
 
-            
             case Key.K when noMod:
             case Key.Up when noMod:
                 if (focus == VFocus.List)

@@ -330,8 +330,6 @@ public sealed class FileOpsService(
         return newName.Length > 0 && parent.Length > 0 && Directory.Exists(parent);
     }
 
-    
-
     private void PushCopyTo(string source, string destParent, string newName)
     {
         string created = Path.Combine(destParent, newName);

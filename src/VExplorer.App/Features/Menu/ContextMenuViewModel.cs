@@ -203,8 +203,6 @@ public sealed partial class ContextMenuViewModel : ObservableObject
         _session = null;
     }
 
-    
-
     private void PushColumn(IReadOnlyList<MenuItemViewModel> items)
     {
         Columns.Add(new MenuColumnViewModel(items, NextSelectable(items, -1, +1)));
