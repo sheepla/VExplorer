@@ -8,6 +8,10 @@ namespace VExplorer.Core.Completion;
 public enum CompletionContextKind
 {
     Path,
+
+    /// <summary>UNC server / share segments (<c>\\server\</c>), above ordinary paths.</summary>
+    UncPath,
+
     SpecialFolder,
     CommandName,
 

@@ -1,12 +1,18 @@
+using System.Diagnostics;
+using Microsoft.Extensions.Logging;
 using VExplorer.Core.Completion;
 using VExplorer.Core.FileSystem;
 using VExplorer.Core.State;
 
 namespace VExplorer.Shell.FileSystem;
 
-public sealed class WindowsDirectoryLister(AppState appState) : IDirectoryLister
+public sealed class WindowsDirectoryLister(
+    AppState appState,
+    ILogger<WindowsDirectoryLister> logger
+) : IDirectoryLister
 {
     private readonly AppState _appState = appState;
+    private readonly ILogger<WindowsDirectoryLister> _logger = logger;
 
     public ValueTask<IFileItemSource> ListAsync(
         Location location,
@@ -54,6 +60,7 @@ public sealed class WindowsDirectoryLister(AppState appState) : IDirectoryLister
 
         List<FileItem> items = [];
         bool truncated = false;
+        long startTimestamp = Stopwatch.GetTimestamp();
         try
         {
             DirectoryInfo dir = new(path);
@@ -107,8 +114,20 @@ public sealed class WindowsDirectoryLister(AppState appState) : IDirectoryLister
                 );
             }
         }
-        catch (UnauthorizedAccessException) { }
-        catch (DirectoryNotFoundException) { }
+        catch (Exception ex) when (ex is UnauthorizedAccessException or DirectoryNotFoundException)
+        {
+            // The target directory is inaccessible or gone: return whatever was
+            // gathered so far rather than failing the whole listing.
+            _logger.LogWarning(ex, "Directory listing incomplete for {Path}", path);
+        }
+
+        _logger.LogDebug(
+            "Listed {Count} items from {Path} in {ElapsedMs}ms (truncated={Truncated})",
+            items.Count,
+            path,
+            Stopwatch.GetElapsedTime(startTimestamp).TotalMilliseconds,
+            truncated
+        );
 
         if (snap.FoldersFirst)
         {

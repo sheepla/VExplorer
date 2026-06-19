@@ -1,6 +1,8 @@
 using System.IO;
 using System.Windows;
 using System.Windows.Interop;
+using Microsoft.Extensions.Logging;
+using VExplorer.App.Diagnostics;
 using VExplorer.App.Features.FileList;
 using VExplorer.Core.FileSystem;
 using VExplorer.Core.State;
@@ -8,7 +10,7 @@ using VExplorer.Core.State;
 namespace VExplorer.App.Features.FileOps;
 
 /// <summary>
-/// Central entry point for file operations (writer pattern 型③): read the
+/// Central entry point for file operations (writer pattern): read the
 /// targets from central state, delegate the side-effect to the shell, reflect
 /// the result back. Singleton — the scoped <see cref="TabState"/> /
 /// <see cref="FileListViewModel"/> and the owner HWND are passed as arguments.
@@ -23,13 +25,17 @@ public sealed class FileOpsService(
     IShellFileOps shell,
     IOperationHistory history,
     IRecycleBinSource recycleBin,
-    TabManager tabManager
+    TabManager tabManager,
+    ErrorReporter errors,
+    ILogger<FileOpsService> logger
 )
 {
     private readonly IShellFileOps _shell = shell;
     private readonly IOperationHistory _history = history;
     private readonly IRecycleBinSource _recycleBin = recycleBin;
     private readonly TabManager _tabManager = tabManager;
+    private readonly ErrorReporter _errors = errors;
+    private readonly ILogger<FileOpsService> _logger = logger;
 
     private static nint OwnerHwnd =>
         Application.Current?.MainWindow is { } w ? new WindowInteropHelper(w).Handle : 0;
@@ -127,7 +133,7 @@ public sealed class FileOpsService(
             tab.SetStatusMessage("usage: provide a file path");
             return;
         }
-        // Existing file/folder → error and do nothing (no implicit overwrite, 原則6).
+        // Existing file/folder → error and do nothing (no implicit overwrite).
         if (File.Exists(path) || Directory.Exists(path))
         {
             tab.SetStatusMessage($"Already exists: {name}");
@@ -146,7 +152,7 @@ public sealed class FileOpsService(
             }
             catch (Exception ex)
             {
-                tab.SetStatusMessage(ex.Message);
+                _errors.Report(tab, "Create parent directory", ex, ("Parent", parent));
                 return;
             }
         }
@@ -329,6 +335,8 @@ public sealed class FileOpsService(
         newName = Path.GetFileName(dest);
         return newName.Length > 0 && parent.Length > 0 && Directory.Exists(parent);
     }
+
+    // Undo/redo recording
 
     private void PushCopyTo(string source, string destParent, string newName)
     {
@@ -566,7 +574,7 @@ public sealed class FileOpsService(
     }
 
     /// <summary>Top-level entries of <paramref name="directory"/>, or empty when unreadable.</summary>
-    private static HashSet<string> SnapshotEntries(string directory)
+    private HashSet<string> SnapshotEntries(string directory)
     {
         HashSet<string> set = new(StringComparer.OrdinalIgnoreCase);
         try
@@ -576,14 +584,15 @@ public sealed class FileOpsService(
                 set.Add(entry);
             }
         }
-        catch
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             // Unreadable destination → empty snapshot (undo simply finds nothing).
+            _logger.LogDebug(ex, "Could not snapshot entries of {Directory}", directory);
         }
         return set;
     }
 
-    private static List<string> CreatedSince(string directory, HashSet<string> before)
+    private List<string> CreatedSince(string directory, HashSet<string> before)
     {
         return SnapshotEntries(directory).Where(e => !before.Contains(e)).ToList();
     }

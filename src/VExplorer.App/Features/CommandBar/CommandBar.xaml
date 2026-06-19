@@ -7,13 +7,17 @@
   mc:Ignorable="d"
   Visibility="{Binding IsActive, Converter={StaticResource BoolToVisibility}}"
 >
-  <Border BorderBrush="#0078D4" BorderThickness="0,1,0,0" Padding="4,3">
+  <Border
+    Background="{DynamicResource WindowBackground}"
+    BorderBrush="{DynamicResource AccentBrush}"
+    BorderThickness="0,1,0,0"
+    Padding="4,3"
+  >
     <Grid>
       <Grid.ColumnDefinitions>
         <ColumnDefinition Width="Auto" />
         <ColumnDefinition Width="*" />
       </Grid.ColumnDefinitions>
-
       <!-- Static ":" prompt; the editable text is the command without the colon. -->
       <TextBlock
         Grid.Column="0"
@@ -23,7 +27,6 @@
         VerticalAlignment="Center"
         Margin="2,0,4,0"
       />
-
       <TextBox
         x:Name="CommandInput"
         Grid.Column="1"
@@ -34,7 +37,6 @@
         Background="Transparent"
         VerticalContentAlignment="Center"
       />
-
       <!-- Completion popup opens upward (the bar sits at the window bottom). -->
       <Popup
         Grid.Column="1"
@@ -47,8 +49,8 @@
         MaxHeight="320"
       >
         <Border
-          Background="White"
-          BorderBrush="#0078D4"
+          Background="{DynamicResource SurfaceBackground}"
+          BorderBrush="{DynamicResource AccentBrush}"
           BorderThickness="1"
           Width="{Binding ActualWidth, ElementName=CommandInput}"
           HorizontalAlignment="Left"

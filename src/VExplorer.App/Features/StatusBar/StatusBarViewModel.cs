@@ -24,6 +24,10 @@ public sealed partial class StatusBarViewModel : ObservableObject, IDisposable
     [ObservableProperty]
     private bool _isError;
 
+    /// <summary>Severity of the current message, driving its colour emphasis.</summary>
+    [ObservableProperty]
+    private StatusSeverity _severity;
+
     [ObservableProperty]
     private int _itemCount;
 
@@ -44,6 +48,7 @@ public sealed partial class StatusBarViewModel : ObservableObject, IDisposable
             {
                 StatusText = msg.Text;
                 IsError = msg.IsError;
+                Severity = msg.Severity;
             });
 
         _selectionSubscription = tabState

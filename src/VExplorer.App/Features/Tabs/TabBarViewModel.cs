@@ -3,6 +3,7 @@ using System.Windows.Input;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using R3;
+using VExplorer.App.Themes;
 using VExplorer.Core.State;
 
 namespace VExplorer.App.Features.Tabs;
@@ -16,24 +17,41 @@ namespace VExplorer.App.Features.Tabs;
 /// </summary>
 public sealed partial class TabBarViewModel : ObservableObject, IDisposable
 {
+    // Segoe MDL2 Assets glyphs: sun (switch to light) while dark, moon while light.
+    private const string SunGlyph = "";
+    private const string MoonGlyph = "";
+
     private readonly TabManager _tabManager;
     private readonly AppState _appState;
     private readonly IDisposable _tabsSubscription;
     private readonly IDisposable _activeSubscription;
+    private readonly IDisposable _themeSubscription;
     private readonly Subject<Guid> _closeRequested = new();
 
     public ObservableCollection<TabItemViewModel> Tabs { get; } = [];
 
     public ICommand NewTabCommand { get; }
 
+    /// <summary>Toggles between light and dark; the icon reflects the next state.</summary>
+    public ICommand ToggleThemeCommand { get; }
+
+    /// <summary>Segoe MDL2 glyph shown on the dark-mode toggle button.</summary>
+    [ObservableProperty]
+    private string _themeIcon = MoonGlyph;
+
+    /// <summary>Tooltip for the dark-mode toggle button (reflects the next state).</summary>
+    [ObservableProperty]
+    private string _themeToggleTooltip = "Switch to dark theme";
+
     /// <summary>Fires the id of a tab the user asked to close (× button).</summary>
     public Observable<Guid> CloseRequested => _closeRequested;
 
-    public TabBarViewModel(TabManager tabManager, AppState appState)
+    public TabBarViewModel(TabManager tabManager, AppState appState, ThemeManager themeManager)
     {
         _tabManager = tabManager;
         _appState = appState;
         NewTabCommand = new RelayCommand(() => _tabManager.OpenTab());
+        ToggleThemeCommand = new RelayCommand(themeManager.Toggle);
 
         _tabsSubscription = tabManager
             .TabsChanged.ObserveOnCurrentDispatcher()
@@ -41,6 +59,13 @@ public sealed partial class TabBarViewModel : ObservableObject, IDisposable
         _activeSubscription = appState
             .ActiveTabId.ObserveOnCurrentDispatcher()
             .Subscribe(_ => ApplyActive());
+        _themeSubscription = themeManager
+            .IsDarkChanged.ObserveOnCurrentDispatcher()
+            .Subscribe(dark =>
+            {
+                ThemeIcon = dark ? SunGlyph : MoonGlyph;
+                ThemeToggleTooltip = dark ? "Switch to light theme" : "Switch to dark theme";
+            });
         Rebuild();
     }
 
@@ -96,6 +121,7 @@ public sealed partial class TabBarViewModel : ObservableObject, IDisposable
     {
         _tabsSubscription.Dispose();
         _activeSubscription.Dispose();
+        _themeSubscription.Dispose();
         foreach (TabItemViewModel tab in Tabs)
         {
             tab.Dispose();

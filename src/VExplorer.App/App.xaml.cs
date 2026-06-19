@@ -1,8 +1,10 @@
-using System.Diagnostics;
 using System.IO;
 using System.Windows;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using R3;
+using Serilog;
+using Serilog.Formatting.Compact;
 using VExplorer.App.Features.AddressBar;
 using VExplorer.App.Features.CommandBar;
 using VExplorer.App.Features.FileList;
@@ -27,8 +29,10 @@ public partial class App : Application
     {
         base.OnStartup(e);
 
+        ConfigureSerilog();
+
         WpfProviderInitializer.SetDefaultObservableSystem(ex =>
-            Trace.WriteLine($"R3 UnhandledException: {ex}")
+            Log.Error(ex, "R3 unhandled exception")
         );
 
         InstallGlobalExceptionHandlers();
@@ -38,6 +42,16 @@ public partial class App : Application
         _serviceProvider = services.BuildServiceProvider(
             new ServiceProviderOptions { ValidateOnBuild = true }
         );
+
+        // Resolve the theme manager early so the initial light/dark palette is
+        // applied (following the Windows setting) before any window is shown.
+        _serviceProvider.GetRequiredService<Themes.ThemeManager>();
+
+        // Wire the command layer into the dispatcher (the view is attached by the
+        // window in its constructor).
+        _serviceProvider
+            .GetRequiredService<Actions.ActionDispatcher>()
+            .AttachCommandHandler(_serviceProvider.GetRequiredService<CommandExecutor>());
 
         _tabManager = _serviceProvider.GetRequiredService<TabManager>();
         (Location initial, string? focusName) = ResolveStartupLocation(e.Args);
@@ -75,11 +89,49 @@ public partial class App : Application
                 return (Location.ForPath(parent), Path.GetFileName(full));
             }
         }
-        catch
+        catch (Exception ex)
+            when (ex is ArgumentException or NotSupportedException or PathTooLongException)
         {
             // Malformed path → fall through to PC.
+            Log.Debug(ex, "Ignoring malformed startup path argument {Arg}", args[0]);
         }
         return (KnownLocations.Pc, null);
+    }
+
+    /// <summary>
+    /// Configures Serilog with a human-readable rolling text log and a structured
+    /// CLEF (compact JSON) log for machine analysis. Logs live under
+    /// LocalApplicationData (not the roaming config location) so they stay machine-local.
+    /// </summary>
+    private static void ConfigureSerilog()
+    {
+        string logDir = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "VExplorer",
+            "logs"
+        );
+        Directory.CreateDirectory(logDir);
+
+        LoggerConfiguration config = new LoggerConfiguration()
+            .Enrich.FromLogContext()
+            .WriteTo.File(
+                Path.Combine(logDir, "vexplorer-.log"),
+                rollingInterval: RollingInterval.Day,
+                retainedFileCountLimit: 14,
+                outputTemplate: "{Timestamp:HH:mm:ss.fff} [{Level:u3}] {Message:lj} {Properties:j}{NewLine}{Exception}"
+            )
+            .WriteTo.File(
+                new CompactJsonFormatter(),
+                Path.Combine(logDir, "vexplorer-.clef"),
+                rollingInterval: RollingInterval.Day,
+                retainedFileCountLimit: 14
+            );
+#if DEBUG
+        config = config.MinimumLevel.Debug();
+#else
+        config = config.MinimumLevel.Information();
+#endif
+        Log.Logger = config.CreateLogger();
     }
 
     /// <summary>
@@ -91,17 +143,17 @@ public partial class App : Application
     {
         DispatcherUnhandledException += (_, args) =>
         {
-            Trace.WriteLine($"Unhandled UI exception: {args.Exception}");
+            Log.Error(args.Exception, "Unhandled UI exception");
             TryShowError(args.Exception);
             args.Handled = true;
         };
 
         AppDomain.CurrentDomain.UnhandledException += (_, args) =>
-            Trace.WriteLine($"Unhandled domain exception: {args.ExceptionObject}");
+            Log.Fatal(args.ExceptionObject as Exception, "Unhandled domain exception");
 
         TaskScheduler.UnobservedTaskException += (_, args) =>
         {
-            Trace.WriteLine($"Unobserved task exception: {args.Exception}");
+            Log.Error(args.Exception, "Unobserved task exception");
             args.SetObserved();
         };
     }
@@ -124,15 +176,23 @@ public partial class App : Application
     {
         _tabManager?.Dispose();
         _serviceProvider?.Dispose();
+        Log.CloseAndFlush();
         base.OnExit(e);
     }
 
     private static void ConfigureServices(IServiceCollection services)
     {
+        services.AddLogging(builder =>
+        {
+            builder.ClearProviders();
+            builder.AddSerilog(Log.Logger, dispose: false);
+        });
+
         services.AddSingleton<SettingsStore>();
         services.AddSingleton<Core.State.Settings>(sp =>
             sp.GetRequiredService<SettingsStore>().Load()
         );
+        services.AddSingleton<Themes.ThemeManager>();
         services.AddSingleton<AppState>(sp => new AppState(
             sp.GetRequiredService<Core.State.Settings>()
         ));
@@ -156,17 +216,21 @@ public partial class App : Application
         services.AddSingleton<IShortcutService, WindowsShortcutService>();
         services.AddSingleton<IShellIntegration, WindowsShellIntegration>();
         services.AddSingleton<IShellContextMenu, WindowsShellContextMenu>();
+        services.AddSingleton<IDragOverlayInterop, WindowsDragOverlayInterop>();
         services.AddSingleton<Features.Menu.ShellMenuHost>();
         services.AddSingleton<IShellInfoProvider, WindowsShellInfoProvider>();
         services.AddSingleton<IIconImageCache, IconImageCache>();
         services.AddSingleton<IOperationHistory, OperationHistory>();
+        services.AddSingleton<Diagnostics.ErrorReporter>();
         services.AddSingleton<Features.FileOps.FileOpsService>();
 
         // Completion engine (stateless / app-wide).
         services.AddSingleton<IPathCompletionSource, WindowsPathCompletionSource>();
+        services.AddSingleton<IUncShareSource, WindowsUncShareSource>();
         services.AddSingleton<ISpecialFolderSource, WindowsSpecialFolderSource>();
         services.AddSingleton<ICurrentItemSource, Features.FileOps.CurrentItemSource>();
         services.AddSingleton<ICompletionProvider, PathCompletionProvider>();
+        services.AddSingleton<ICompletionProvider, UncPathCompletionProvider>();
         services.AddSingleton<ICompletionProvider, SpecialFolderCompletionProvider>();
         services.AddSingleton<ICompletionProvider, CommandNameCompletionProvider>();
         services.AddSingleton<ICompletionProvider, CurrentNameCompletionProvider>();
@@ -182,6 +246,7 @@ public partial class App : Application
         services.AddSingleton<ICommandHistory, CommandHistory>();
         services.AddSingleton<CommandContextResolver>();
         services.AddSingleton<CommandExecutor>();
+        services.AddSingleton<Actions.ActionDispatcher>();
 
         services.AddSingleton<Features.Tabs.TabBarViewModel>();
         services.AddSingleton<MainWindowViewModel>();

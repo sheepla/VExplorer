@@ -1,4 +1,6 @@
+using VExplorer.App.Actions;
 using VExplorer.App.Features.Completion;
+using VExplorer.Core.Actions;
 using VExplorer.Core.Commands;
 using VExplorer.Core.Completion;
 using VExplorer.Core.Modes;
@@ -17,13 +19,13 @@ public sealed class CommandBarViewModel(
     TabState tabState,
     CompletionEngine engine,
     CommandContextResolver resolver,
-    CommandExecutor executor,
+    ActionDispatcher dispatcher,
     ICommandHistory commandHistory,
     CoreSettings settings
 ) : CompletionEditorViewModel(tabState, engine, settings.AddressBarDelayMs)
 {
     private readonly CommandContextResolver _resolver = resolver;
-    private readonly CommandExecutor _executor = executor;
+    private readonly ActionDispatcher _dispatcher = dispatcher;
     private readonly ICommandHistory _commandHistory = commandHistory;
 
     // Recall cursor over command history: -1 = not recalling (buffer is the
@@ -58,7 +60,24 @@ public sealed class CommandBarViewModel(
     protected override void OnConfirm(string text)
     {
         ClearCandidates();
-        string? reseed = _executor.Execute(text, TabState);
+        string line = text.Trim();
+        if (line.Length == 0)
+        {
+            TabState.DispatchModeEvent(new ModeEvent.ConfirmMode());
+            return;
+        }
+        _commandHistory.Add(line);
+
+        AppAction? action = CommandParser.Parse(line);
+        if (action is null)
+        {
+            int space = line.IndexOf(' ');
+            TabState.SetStatusMessage($"Unknown command: {(space < 0 ? line : line[..space])}");
+            TabState.DispatchModeEvent(new ModeEvent.ConfirmMode());
+            return;
+        }
+
+        string? reseed = _dispatcher.Dispatch(action);
         if (reseed != null)
         {
             // Argument-less :cp/:mv asks for a destination: keep the bar open,

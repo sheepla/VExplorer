@@ -46,6 +46,7 @@ public static class SettingsCommand
     private static readonly string[] ValueKeys =
     [
         "columns",
+        "theme",
         "tree_follow_delay_ms",
         "incr_search_delay_ms",
         "address_bar_delay_ms",
@@ -53,9 +54,29 @@ public static class SettingsCommand
 
     private static readonly string[] ValidColumns = ["name", "size", "mtime", "type"];
 
+    /// <summary>
+    /// Known completion values for value-options whose values come from a fixed set
+    /// (e.g. <c>theme=dark|light|system</c>). Used to complete the part after <c>=</c>.
+    /// </summary>
+    private static readonly Dictionary<string, string[]> EnumValues = new(
+        StringComparer.OrdinalIgnoreCase
+    )
+    {
+        ["theme"] = ["system", "light", "dark"],
+    };
+
     /// <summary>All option/key names (for completion and help).</summary>
     public static IReadOnlyList<string> OptionNames =>
         [.. Bools.Keys.Order(StringComparer.OrdinalIgnoreCase), .. ValueKeys];
+
+    /// <summary>
+    /// The fixed set of completion values for <paramref name="key"/> (e.g. theme),
+    /// or an empty list when the key takes free-form / no enumerable values.
+    /// </summary>
+    public static IReadOnlyList<string> ValuesFor(string key)
+    {
+        return EnumValues.TryGetValue(key, out string[]? values) ? values : [];
+    }
 
     /// <summary>
     /// Applies a whole <c>:set</c> argument string (possibly several space-separated
@@ -115,7 +136,12 @@ public static class SettingsCommand
         if (token.EndsWith('!'))
         {
             string name = token[..^1];
-            if (Bools.TryGetValue(name, out var b))
+            if (
+                Bools.TryGetValue(
+                    name,
+                    out (Func<Settings, bool> Get, Func<Settings, bool, Settings> Set) b
+                )
+            )
             {
                 return SetResult.Changed(b.Set(settings, !b.Get(settings)));
             }
@@ -126,14 +152,24 @@ public static class SettingsCommand
         if (token.StartsWith("no", StringComparison.OrdinalIgnoreCase))
         {
             string name = token[2..];
-            if (Bools.TryGetValue(name, out var b))
+            if (
+                Bools.TryGetValue(
+                    name,
+                    out (Func<Settings, bool> Get, Func<Settings, bool, Settings> Set) b
+                )
+            )
             {
                 return SetResult.Changed(b.Set(settings, false));
             }
         }
 
         // bare boolean — on
-        if (Bools.TryGetValue(token, out var on))
+        if (
+            Bools.TryGetValue(
+                token,
+                out (Func<Settings, bool> Get, Func<Settings, bool, Settings> Set) on
+            )
+        )
         {
             return SetResult.Changed(on.Set(settings, true));
         }
@@ -143,13 +179,19 @@ public static class SettingsCommand
 
     private static SetResult QueryOption(Settings settings, string name)
     {
-        if (Bools.TryGetValue(name, out var b))
+        if (
+            Bools.TryGetValue(
+                name,
+                out (Func<Settings, bool> Get, Func<Settings, bool, Settings> Set) b
+            )
+        )
         {
             return SetResult.Query($"{name}={(b.Get(settings) ? "on" : "off")}");
         }
         return name switch
         {
             "columns" => SetResult.Query($"columns={string.Join(',', settings.Columns)}"),
+            "theme" => SetResult.Query($"theme={settings.Theme.ToString().ToLowerInvariant()}"),
             "tree_follow_delay_ms" => SetResult.Query(
                 $"tree_follow_delay_ms={settings.TreeFollowDebounceMs}"
             ),
@@ -196,6 +238,14 @@ public static class SettingsCommand
                     }
                 );
             }
+            case "theme":
+                return value.ToLowerInvariant() switch
+                {
+                    "system" => SetResult.Changed(settings with { Theme = ThemeMode.System }),
+                    "light" => SetResult.Changed(settings with { Theme = ThemeMode.Light }),
+                    "dark" => SetResult.Changed(settings with { Theme = ThemeMode.Dark }),
+                    _ => SetResult.Error("set: theme expects system, light or dark"),
+                };
             case "tree_follow_delay_ms":
                 return ApplyInt(value, key, ms => settings with { TreeFollowDebounceMs = ms });
             case "incr_search_delay_ms":

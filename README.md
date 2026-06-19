@@ -28,6 +28,8 @@ All operations can be performed quickly using either the keyboard or mouse, comb
   - File list virtualization enables directories containing large numbers of files, such as `WinSxS`, to be displayed in a short amount of time.
 - 🪟 Native Windows shell integration: VExplorer directly calls Windows native shell APIs. This allows it to integrate with Explorer functionality and invoke features such as special folders, file operations, and context menus in the same way as the standard Explorer.
 
+## Usage
+
 ## Installation
 
 Requires .NET 10 SDK. To build from source, run `dotnet publish` command.

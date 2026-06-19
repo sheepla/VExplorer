@@ -14,6 +14,9 @@ public sealed record Settings
 
     /// <summary>Use fuzzy (subsequence) matching for SEARCH / FILTER (<c>:set fuzzy</c>).</summary>
     public bool Fuzzy { get; init; } = false;
+
+    /// <summary>UI colour theme (<c>:set theme=dark|light|system</c>).</summary>
+    public ThemeMode Theme { get; init; } = ThemeMode.System;
     public int TreeFollowDebounceMs { get; init; } = 200;
     public int IncrSearchDelayMs { get; init; } = 150;
     public int AddressBarDelayMs { get; init; } = 100;

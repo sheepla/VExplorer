@@ -12,8 +12,7 @@ public readonly record struct PathEntry(string Name, bool IsDirectory);
 /// <para>
 /// Unlike <see cref="IDirectoryLister"/>, this source <b>always</b> yields
 /// hidden and system entries: completion is an active intent to go somewhere,
-/// so a target should be reachable even when it is not visible in the list
-/// (see <c>VExplorer_Completion.md</c>).
+/// so a target should be reachable even when it is not visible in the list.
 /// </para>
 /// </summary>
 public interface IPathCompletionSource

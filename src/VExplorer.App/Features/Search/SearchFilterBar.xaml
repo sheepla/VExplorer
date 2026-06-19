@@ -7,13 +7,17 @@
   mc:Ignorable="d"
   Visibility="{Binding IsActive, Converter={StaticResource BoolToVisibility}}"
 >
-  <Border BorderBrush="#0078D4" BorderThickness="0,1,0,0" Padding="4,3">
+  <Border
+    Background="{DynamicResource WindowBackground}"
+    BorderBrush="{DynamicResource AccentBrush}"
+    BorderThickness="0,1,0,0"
+    Padding="4,3"
+  >
     <Grid>
       <Grid.ColumnDefinitions>
         <ColumnDefinition Width="Auto" />
         <ColumnDefinition Width="*" />
       </Grid.ColumnDefinitions>
-
       <TextBlock
         Grid.Column="0"
         Text="{Binding Prefix}"
@@ -22,7 +26,6 @@
         VerticalAlignment="Center"
         Margin="2,0,6,0"
       />
-
       <TextBox
         x:Name="QueryInput"
         Grid.Column="1"

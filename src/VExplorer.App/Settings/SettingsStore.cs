@@ -1,14 +1,16 @@
 using System.Collections.Immutable;
-using System.Diagnostics;
 using System.IO;
+using Microsoft.Extensions.Logging;
 using Tomlyn;
 using Tomlyn.Model;
 using VExplorer.Core.State;
 
 namespace VExplorer.App.Settings;
 
-public sealed class SettingsStore
+public sealed class SettingsStore(ILogger<SettingsStore> logger)
 {
+    private readonly ILogger<SettingsStore> _logger = logger;
+
     private readonly string _path = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
         "VExplorer",
@@ -23,6 +25,7 @@ public sealed class SettingsStore
         show_ads = false
         folders_first = true
         fuzzy = false
+        theme = "system"
         tree_follow_delay_ms = 200
         incr_search_delay_ms = 150
         address_bar_delay_ms = 100
@@ -56,6 +59,7 @@ public sealed class SettingsStore
                 ShowAds = GetBool(model, "show_ads", false),
                 FoldersFirst = GetBool(model, "folders_first", true),
                 Fuzzy = GetBool(model, "fuzzy", false),
+                Theme = GetTheme(model, "theme", ThemeMode.System),
                 TreeFollowDebounceMs = GetInt(model, "tree_follow_delay_ms", 200),
                 IncrSearchDelayMs = GetInt(model, "incr_search_delay_ms", 150),
                 AddressBarDelayMs = GetInt(model, "address_bar_delay_ms", 100),
@@ -67,7 +71,7 @@ public sealed class SettingsStore
         }
         catch (Exception ex)
         {
-            Trace.WriteLine($"SettingsStore: parse failed: {ex.Message}");
+            _logger.LogWarning(ex, "Settings parse failed for {Path}; using defaults", _path);
             return Core.State.Settings.Default;
         }
     }
@@ -94,6 +98,7 @@ public sealed class SettingsStore
             ["show_ads"] = settings.ShowAds,
             ["folders_first"] = settings.FoldersFirst,
             ["fuzzy"] = settings.Fuzzy,
+            ["theme"] = settings.Theme.ToString().ToLowerInvariant(),
             ["tree_follow_delay_ms"] = (long)settings.TreeFollowDebounceMs,
             ["incr_search_delay_ms"] = (long)settings.IncrSearchDelayMs,
             ["address_bar_delay_ms"] = (long)settings.AddressBarDelayMs,
@@ -113,6 +118,16 @@ public sealed class SettingsStore
     private static int GetInt(TomlTable model, string key, int def)
     {
         return model.TryGetValue(key, out object? val) && val is long l ? (int)l : def;
+    }
+
+    private static ThemeMode GetTheme(TomlTable model, string key, ThemeMode def)
+    {
+        return
+            model.TryGetValue(key, out object? val)
+            && val is string s
+            && Enum.TryParse(s, ignoreCase: true, out ThemeMode mode)
+            ? mode
+            : def;
     }
 
     private static ImmutableArray<string> GetStringArray(

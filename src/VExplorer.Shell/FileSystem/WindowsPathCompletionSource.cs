@@ -1,4 +1,5 @@
 using System.Runtime.CompilerServices;
+using Microsoft.Extensions.Logging;
 using VExplorer.Core.FileSystem;
 
 namespace VExplorer.Shell.FileSystem;
@@ -10,15 +11,18 @@ namespace VExplorer.Shell.FileSystem;
 /// background thread and honours cancellation, mirroring
 /// <see cref="WindowsDirectoryLister"/>.
 /// </summary>
-public sealed class WindowsPathCompletionSource : IPathCompletionSource
+public sealed class WindowsPathCompletionSource(ILogger<WindowsPathCompletionSource> logger)
+    : IPathCompletionSource
 {
+    private readonly ILogger<WindowsPathCompletionSource> _logger = logger;
+
     public async IAsyncEnumerable<PathEntry> EnumerateAsync(
         string directoryPath,
         [EnumeratorCancellation] CancellationToken cancel
     )
     {
         // Snapshot synchronously on a worker thread; large/slow directories must
-        // not block the UI. Errors (missing dir, access denied) yield nothing.
+        // not block the UI.
         List<PathEntry> entries = await Task.Run(
             () => EnumerateSync(directoryPath, cancel),
             cancel
@@ -29,7 +33,7 @@ public sealed class WindowsPathCompletionSource : IPathCompletionSource
         }
     }
 
-    private static List<PathEntry> EnumerateSync(string directoryPath, CancellationToken cancel)
+    private List<PathEntry> EnumerateSync(string directoryPath, CancellationToken cancel)
     {
         List<PathEntry> entries = [];
         try
@@ -41,10 +45,18 @@ public sealed class WindowsPathCompletionSource : IPathCompletionSource
                 entries.Add(new PathEntry(Path.GetFileName(path), isDir));
             }
         }
-        catch (UnauthorizedAccessException) { }
-        catch (DirectoryNotFoundException) { }
-        catch (IOException) { }
-        catch (ArgumentException) { }
+        catch (Exception ex)
+            when (ex
+                    is UnauthorizedAccessException
+                        or DirectoryNotFoundException
+                        or IOException
+                        or ArgumentException
+            )
+        {
+            // Expected while typing a path (missing/inaccessible directory): yield
+            // what we have without surfacing anything to the UI.
+            _logger.LogDebug(ex, "Completion enumeration failed for {Directory}", directoryPath);
+        }
 
         return entries;
     }

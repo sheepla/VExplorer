@@ -61,6 +61,8 @@ internal sealed class VirtualizedRowList(int count, Func<int, FileItemRow> facto
         return GetEnumerator();
     }
 
+    // IList (read-only view)
+
     object? IList.this[int index]
     {
         get => this[index];

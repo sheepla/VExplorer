@@ -6,8 +6,7 @@ namespace VExplorer.Core.Commands;
 /// <summary>
 /// Definition of an internal command. Carries the completion metadata that lets
 /// the completion engine work without command-specific logic: each argument
-/// position declares which candidate source completes it (see
-/// <c>VExplorer_Completion.md</c>, "コマンド定義に補完メタ情報を紐づける").
+/// position declares which candidate source completes it.
 /// </summary>
 /// <param name="Name">The command name without the leading <c>:</c> (e.g. "cd").</param>
 /// <param name="ArgumentKinds">

@@ -16,6 +16,7 @@ public sealed class AddressContextResolver
     private static readonly ImmutableArray<CompletionContextKind> AddressProviders =
     [
         CompletionContextKind.NavigationHistory,
+        CompletionContextKind.UncPath,
         CompletionContextKind.Path,
         CompletionContextKind.SpecialFolder,
     ];

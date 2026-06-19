@@ -10,7 +10,11 @@ using VExplorer.App.Features.FileList;
 using VExplorer.App.Features.FileOps;
 using VExplorer.App.Features.Menu;
 using VExplorer.App.Features.Tree;
+using VExplorer.App.Input;
+using VExplorer.Core.Actions;
+using VExplorer.Core.Commands;
 using VExplorer.Core.FileSystem;
+using VExplorer.Core.Input;
 using VExplorer.Core.Modes;
 using VExplorer.Core.State;
 using VFocus = VExplorer.Core.Modes.Focus;
@@ -22,11 +26,9 @@ public partial class MainWindow : Window
     private readonly TabManager _tabManager;
     private readonly AppState _appState;
     private readonly FileOpsService _fileOps;
-    private readonly IRecycleBinSource _recycleBin;
-    private readonly IOperationHistory _history;
     private readonly ISpecialFolderSource _specialFolders;
     private readonly ShellMenuHost _shellMenu;
-    private readonly Features.CommandBar.CommandExecutor _executor;
+    private readonly Actions.ActionDispatcher _dispatcher;
     private readonly IDisposable _activeTabSubscription;
 
     /// <summary>The tab VMs the scroll handlers are currently wired to (for re-wiring on switch).</summary>
@@ -36,8 +38,8 @@ public partial class MainWindow : Window
     /// <summary>Cached owner window handle for OS file-operation dialogs.</summary>
     private nint _hwnd;
 
-    /// <summary>First key of a pending two-key chord (yy / dd), or null.</summary>
-    private Key? _pendingChord;
+    /// <summary>Folds the raw key stream into chords (yy / dd) before binding lookup.</summary>
+    private readonly ChordResolver _chordResolver = new();
 
     /// <summary>Mouse position where a potential drag started (List).</summary>
     private Point _dragStart;
@@ -46,26 +48,36 @@ public partial class MainWindow : Window
     /// <summary>The row under the press that armed a potential drag.</summary>
     private FileItemRow? _dragRow;
 
+    /// <summary>
+    /// Set when a plain click landed on an already-selected row: the multi-selection
+    /// is kept until mouse-up so the row can start a drag (Explorer deferred select).
+    /// </summary>
+    private bool _deferSelectionClear;
+
+    /// <summary>The drag-count badge shown while dragging two or more items.</summary>
+    private DragCountOverlay? _dragOverlay;
+
+    private readonly IDragOverlayInterop _overlayInterop;
+
     public MainWindow(
         MainWindowViewModel viewModel,
         TabManager tabManager,
         AppState appState,
         FileOpsService fileOps,
-        IRecycleBinSource recycleBin,
-        IOperationHistory history,
         ISpecialFolderSource specialFolders,
         ShellMenuHost shellMenu,
-        Features.CommandBar.CommandExecutor executor
+        Actions.ActionDispatcher dispatcher,
+        IDragOverlayInterop overlayInterop
     )
     {
         _tabManager = tabManager;
         _appState = appState;
         _fileOps = fileOps;
-        _recycleBin = recycleBin;
-        _history = history;
         _specialFolders = specialFolders;
         _shellMenu = shellMenu;
-        _executor = executor;
+        _dispatcher = dispatcher;
+        _overlayInterop = overlayInterop;
+        _dispatcher.AttachView(new ViewEffects(this));
         InitializeComponent();
         DataContext = viewModel;
 
@@ -151,12 +163,6 @@ public partial class MainWindow : Window
         }
     }
 
-    /// <summary>Closes the active tab; closing the last tab exits the app.</summary>
-    private void CloseActiveTab()
-    {
-        CloseTab(_appState.ActiveTabIdValue);
-    }
-
     /// <summary>Closes a specific tab; closing the last one exits the app.</summary>
     private void CloseTab(Guid tabId)
     {
@@ -168,15 +174,14 @@ public partial class MainWindow : Window
 
     private void OnWindowMouseDown(object sender, MouseButtonEventArgs e)
     {
-        TabState tabState = _tabManager.GetActiveTabState();
         if (e.ChangedButton == MouseButton.XButton1)
         {
-            tabState.GoBack();
+            _dispatcher.Dispatch(new AppAction.GoBack());
             e.Handled = true;
         }
         else if (e.ChangedButton == MouseButton.XButton2)
         {
-            tabState.GoForward();
+            _dispatcher.Dispatch(new AppAction.GoForward());
             e.Handled = true;
         }
     }
@@ -187,605 +192,56 @@ public partial class MainWindow : Window
         _hwnd = new WindowInteropHelper(this).Handle;
     }
 
+    // Keyboard dispatch
+
     private void OnWindowKeyDown(object sender, KeyEventArgs e)
     {
-        TabState tabState = _tabManager.GetActiveTabState();
-
-        // Let focused text inputs (address/command bars, inline rename) type freely.
+        // Focused text inputs (address/command bars, inline rename) type freely.
         if (Keyboard.FocusedElement is TextBox)
         {
             return;
         }
 
-        // Any new keyboard action clears a stale error so it doesn't outlive the
-        // operation that produced it.
-        tabState.ClearErrorMessage();
+        TabState tabState = _tabManager.GetActiveTabState();
 
-        // Tab management (Ctrl-based) works in any mode; handled before the
-        // NORMAL-only guard. Bracket/brace/digit tab keys are NORMAL-only and
-        // live further down / in OnPreviewTextInput.
+        // Alt+arrow arrives as a system key, so read SystemKey in that case.
+        Key physical = e.Key == Key.System ? e.SystemKey : e.Key;
+        if (!WpfKeyTranslator.TryTranslate(physical, out AppKey appKey))
         {
-            bool tabCtrl = (e.KeyboardDevice.Modifiers & ModifierKeys.Control) != 0;
-            bool tabShift = (e.KeyboardDevice.Modifiers & ModifierKeys.Shift) != 0;
-            if (tabCtrl && e.Key == Key.T)
-            {
-                _tabManager.OpenTab();
-                e.Handled = true;
-                return;
-            }
-            if (tabCtrl && e.Key == Key.W)
-            {
-                CloseActiveTab();
-                e.Handled = true;
-                return;
-            }
-            if (tabCtrl && e.Key == Key.Tab)
-            {
-                _tabManager.ActivateRelative(tabShift ? -1 : +1);
-                e.Handled = true;
-                return;
-            }
-        }
-
-        // VISUAL mode: range-selection keys (handled before the NORMAL-only guard).
-        if (tabState.ModeValue is Mode.Visual visual)
-        {
-            HandleVisualKey(e, tabState, (MainWindowViewModel)DataContext, visual.AnchorIndex);
             return;
         }
+        AppModifiers mods = WpfKeyTranslator.Modifiers(e.KeyboardDevice.Modifiers);
 
-        // MENU mode: hjkl navigation over the context menu (before the NORMAL guard).
-        if (tabState.ModeValue is Mode.Menu)
-        {
-            HandleMenuKey(e, (MainWindowViewModel)DataContext, tabState);
-            return;
-        }
-
-        // Ctrl+L / F4 — enter ADDRESS mode and focus the address bar. Handled
-        // before the NORMAL-only guard; ADDRESS-mode keys live in the address
-        // bar's own PreviewKeyDown.
-        if (
+        // Two-key chords (yy / dd) apply only in NORMAL with list focus, no modifier.
+        bool chordEligible =
             tabState.ModeValue is Mode.Normal
-            && (
-                e.Key == Key.F4
-                || (e.Key == Key.L && (e.KeyboardDevice.Modifiers & ModifierKeys.Control) != 0)
-            )
-        )
+            && tabState.FocusValue == VFocus.List
+            && mods == AppModifiers.None;
+        KeyChord? chord = _chordResolver.Resolve(appKey, mods, chordEligible);
+        if (chord is null)
         {
-            tabState.DispatchModeEvent(new ModeEvent.EnterAddress());
-            // Focus after the TextBox becomes visible (IsActive binding applied).
-            Dispatcher.BeginInvoke(
-                System.Windows.Threading.DispatcherPriority.Input,
-                new Action(() => AddressBarControl.FocusInput())
-            );
+            // First key of a pending chord — wait for the second.
             e.Handled = true;
             return;
         }
 
-        // ":" is handled in OnPreviewTextInput so it works on any keyboard
-        // layout (on JIS, ":" is a dedicated key, not Shift+";").
-
-        if (tabState.ModeValue is not Mode.Normal)
+        if (KeyBindingMap.Default.Resolve(BuildKeyContext(tabState), chord.Value) is { } action)
         {
-            return;
-        }
-
-        MainWindowViewModel vm = (MainWindowViewModel)DataContext;
-        VFocus focus = tabState.FocusValue;
-        bool shift = (e.KeyboardDevice.Modifiers & ModifierKeys.Shift) != 0;
-        bool ctrl = (e.KeyboardDevice.Modifiers & ModifierKeys.Control) != 0;
-        bool alt = (e.KeyboardDevice.Modifiers & ModifierKeys.Alt) != 0;
-        bool noMod = e.KeyboardDevice.Modifiers == ModifierKeys.None;
-
-        // Digit keys jump to a tab by position: 1–8 absolute, 9 last, 0 first.
-        // Out-of-range positions are a no-op (handled in ActivateByIndex).
-        if (noMod && TryGetDigit(e.Key, out int digit))
-        {
-            int index = digit switch
-            {
-                0 => 0,
-                9 => _tabManager.TabOrder.Count - 1,
-                _ => digit - 1,
-            };
-            _tabManager.ActivateByIndex(index);
+            _dispatcher.Dispatch(action);
             e.Handled = true;
-            return;
-        }
-
-        // Two-key chords yy (copy) / dd (trash), List focus only. Any other key
-        // clears a pending chord and falls through to normal handling.
-        Key? pending = _pendingChord;
-        _pendingChord = null;
-        if (focus == VFocus.List && noMod && e.Key is Key.Y or Key.D)
-        {
-            if (e.Key == Key.Y)
-            {
-                if (pending == Key.Y)
-                {
-                    _fileOps.YankToClipboard(vm.FileList, tabState, cut: false);
-                }
-                else
-                {
-                    _pendingChord = Key.Y;
-                }
-            }
-            else // Key.D
-            {
-                if (pending == Key.D)
-                {
-                    // dd — cut (move to clipboard); trash is on "x".
-                    _fileOps.YankToClipboard(vm.FileList, tabState, cut: true);
-                }
-                else
-                {
-                    _pendingChord = Key.D;
-                }
-            }
-            e.Handled = true;
-            return;
-        }
-
-        // Folder navigation history (back / forward). Alt+arrow arrives as a
-        // system key, so read SystemKey when e.Key is Key.System.
-        Key navKey = e.Key == Key.System ? e.SystemKey : e.Key;
-        bool goBack =
-            (!ctrl && !alt && shift && navKey == Key.OemComma) // <
-            || (!ctrl && !shift && alt && navKey == Key.Left); // Alt+Left
-        bool goForward =
-            (!ctrl && !alt && shift && navKey == Key.OemPeriod) // >
-            || (!ctrl && !shift && alt && navKey == Key.Right); // Alt+Right
-        if (goBack || goForward)
-        {
-            if (goBack)
-            {
-                tabState.GoBack();
-            }
-            else
-            {
-                tabState.GoForward();
-            }
-            e.Handled = true;
-            return;
-        }
-
-        switch (e.Key)
-        {
-            case Key.J when noMod:
-            case Key.Down when noMod:
-                if (focus == VFocus.List)
-                {
-                    vm.FileList.MoveCursorDown();
-                    ScrollFileListToCursor();
-                }
-                else
-                {
-                    vm.Tree.MoveCursorDown();
-                }
-                e.Handled = true;
-                break;
-
-            case Key.K when noMod:
-            case Key.Up when noMod:
-                if (focus == VFocus.List)
-                {
-                    vm.FileList.MoveCursorUp();
-                    ScrollFileListToCursor();
-                }
-                else
-                {
-                    vm.Tree.MoveCursorUp();
-                }
-                e.Handled = true;
-                break;
-
-            // ── h / Left — List: parent dir | Tree: collapse / jump to parent ──
-            case Key.H when noMod:
-            case Key.Left when noMod:
-                if (focus == VFocus.List)
-                {
-                    vm.FileList.NavigateToParent(tabState);
-                }
-                else
-                {
-                    vm.Tree.CollapseSelected();
-                }
-                e.Handled = true;
-                break;
-
-            // ── l / Right — List: enter dir (or `..`) | Tree: expand / step in ──
-            case Key.L when noMod:
-            case Key.Right when noMod:
-                if (focus == VFocus.List)
-                {
-                    vm.FileList.NavigateIntoCurrent(tabState);
-                }
-                else
-                {
-                    vm.Tree.ExpandSelected();
-                }
-                e.Handled = true;
-                break;
-
-            // ── Enter — open file (List) | navigate FileList to tree selection ──
-            case Key.Return when noMod:
-                if (focus == VFocus.List)
-                {
-                    vm.FileList.ActivateCurrentItem(tabState);
-                }
-                else
-                {
-                    NavigateFileListToTreeSelection(tabState);
-                }
-                e.Handled = true;
-                break;
-
-            // ── Backspace — always navigate to parent ─────────────────────
-            case Key.Back when noMod:
-                vm.FileList.NavigateToParent(tabState);
-                e.Handled = true;
-                break;
-
-            // ── g — jump to first item ────────────────────────────────────
-            case Key.G when noMod:
-                if (focus == VFocus.List)
-                {
-                    vm.FileList.MoveCursorToTop();
-                    ScrollFileListToCursor();
-                }
-                else
-                {
-                    vm.Tree.MoveCursorToTop();
-                }
-                e.Handled = true;
-                break;
-
-            // ── G (Shift+G) — jump to last item ──────────────────────────
-            case Key.G when shift:
-                if (focus == VFocus.List)
-                {
-                    vm.FileList.MoveCursorToBottom();
-                    ScrollFileListToCursor();
-                }
-                else
-                {
-                    vm.Tree.MoveCursorToBottom();
-                }
-                e.Handled = true;
-                break;
-
-            // ── Ctrl+U — half-page up ─────────────────────────────────────
-            case Key.U when ctrl:
-                if (focus == VFocus.List)
-                {
-                    vm.FileList.MoveCursorPageUp(GetHalfPageSize());
-                    ScrollFileListToCursor();
-                }
-                else
-                {
-                    vm.Tree.MoveCursorPageUp(GetHalfPageSize());
-                }
-                e.Handled = true;
-                break;
-
-            // ── Ctrl+D — half-page down ───────────────────────────────────
-            case Key.D when ctrl:
-                if (focus == VFocus.List)
-                {
-                    vm.FileList.MoveCursorPageDown(GetHalfPageSize());
-                    ScrollFileListToCursor();
-                }
-                else
-                {
-                    vm.Tree.MoveCursorPageDown(GetHalfPageSize());
-                }
-                e.Handled = true;
-                break;
-
-            // ── Ctrl+B / PgUp — full page up ──────────────────────────────
-            case Key.B when ctrl:
-            case Key.PageUp when noMod:
-                if (focus == VFocus.List)
-                {
-                    vm.FileList.MoveCursorPageUp(GetPageSize());
-                    ScrollFileListToCursor();
-                }
-                else
-                {
-                    vm.Tree.MoveCursorPageUp(GetPageSize());
-                }
-                e.Handled = true;
-                break;
-
-            // ── PgDn — full page down (Ctrl+F is SEARCH; see below) ───────
-            case Key.PageDown when noMod:
-                if (focus == VFocus.List)
-                {
-                    vm.FileList.MoveCursorPageDown(GetPageSize());
-                    ScrollFileListToCursor();
-                }
-                else
-                {
-                    vm.Tree.MoveCursorPageDown(GetPageSize());
-                }
-                e.Handled = true;
-                break;
-
-            // ── SEARCH (Ctrl+F, also "/") / FILTER (Shift+F) ──────────────
-            case Key.F when ctrl:
-                EnterSearchOrFilter(tabState, new ModeEvent.EnterSearch());
-                e.Handled = true;
-                break;
-            case Key.F when shift:
-                EnterSearchOrFilter(tabState, new ModeEvent.EnterFilter());
-                e.Handled = true;
-                break;
-
-            // ── n / N — next / previous SEARCH match ──────────────────────
-            case Key.N when noMod && focus == VFocus.List:
-                vm.FileList.NextMatch();
-                ScrollFileListToCursor();
-                e.Handled = true;
-                break;
-            case Key.N when shift && focus == VFocus.List:
-                vm.FileList.PrevMatch();
-                ScrollFileListToCursor();
-                e.Handled = true;
-                break;
-
-            // ── Esc — clear an active FILTER (NORMAL) ─────────────────────
-            case Key.Escape when noMod && focus == VFocus.List:
-                if (vm.FileList.ClearFilter())
-                {
-                    e.Handled = true;
-                }
-                break;
-
-            // ── Shift+H / Shift+L — focus left / right ────────────────────
-            case Key.H when shift:
-                tabState.SetFocus(VFocus.Tree);
-                e.Handled = true;
-                break;
-
-            case Key.L when shift:
-                tabState.SetFocus(VFocus.List);
-                e.Handled = true;
-                break;
-
-            // ── Shift+Left / Shift+Right — focus left / right (alias) ─────
-            case Key.Left when shift:
-                tabState.SetFocus(VFocus.Tree);
-                e.Handled = true;
-                break;
-
-            case Key.Right when shift:
-                tabState.SetFocus(VFocus.List);
-                e.Handled = true;
-                break;
-
-            // ── Space — toggle multi-select at cursor, then step down ─────
-            case Key.Space when noMod:
-                if (focus == VFocus.List)
-                {
-                    ToggleSelectionAtCursor(vm, tabState);
-                }
-                e.Handled = true;
-                break;
-
-            // ── v — enter VISUAL (List focus only) ────────────────────────
-            case Key.V when noMod:
-                if (focus == VFocus.List && vm.FileList.CursorRow is { IsParentEntry: false })
-                {
-                    int anchor = vm.FileList.CursorIndex;
-                    tabState.DispatchModeEvent(new ModeEvent.EnterVisual(anchor));
-                    tabState.SetSelection(vm.FileList.RangeSelection(anchor, anchor));
-                }
-                e.Handled = true;
-                break;
-
-            // ── Copy / cut / paste / copy-path ────────────────────────────
-            case Key.C when ctrl:
-                _fileOps.YankToClipboard(vm.FileList, tabState, cut: false);
-                e.Handled = true;
-                break;
-
-            case Key.X when ctrl:
-                _fileOps.YankToClipboard(vm.FileList, tabState, cut: true);
-                e.Handled = true;
-                break;
-
-            case Key.V when ctrl:
-            case Key.P when noMod:
-                _ = _fileOps.PasteAsync(tabState, _hwnd);
-                e.Handled = true;
-                break;
-
-            case Key.Y when shift:
-                _fileOps.CopyPathsAsText(vm.FileList, tabState);
-                e.Handled = true;
-                break;
-
-            // ── u / Ctrl+Z — undo | Ctrl+R / Ctrl+Y — redo ────────────────
-            case Key.U when noMod && focus == VFocus.List:
-            case Key.Z when ctrl:
-                _ = _history.UndoAsync();
-                e.Handled = true;
-                break;
-
-            case Key.R when ctrl:
-            case Key.Y when ctrl:
-                _ = _history.RedoAsync();
-                e.Handled = true;
-                break;
-
-            // ── x / Delete — trash | Shift+Delete — permanent ─────────────
-            // Inside the Recycle Bin, every delete is a permanent delete.
-            case Key.Delete when shift:
-                if (KnownLocations.IsRecycleBin(tabState.CurrentLocationValue))
-                {
-                    _recycleBin.DeletePermanently(vm.FileList.ResolveTargetTokens(), _hwnd);
-                    tabState.RequestRefresh();
-                }
-                else
-                {
-                    _ = _fileOps.DeletePermanentAsync(vm.FileList, tabState, _hwnd);
-                }
-                e.Handled = true;
-                break;
-
-            case Key.X when noMod:
-            case Key.Delete when noMod:
-                if (KnownLocations.IsRecycleBin(tabState.CurrentLocationValue))
-                {
-                    _recycleBin.DeletePermanently(vm.FileList.ResolveTargetTokens(), _hwnd);
-                    tabState.RequestRefresh();
-                }
-                else
-                {
-                    _ = _fileOps.TrashAsync(vm.FileList, tabState, _hwnd);
-                }
-                e.Handled = true;
-                break;
-
-            // ── r — restore the selected items (Recycle Bin only) ─────────
-            case Key.R when noMod && KnownLocations.IsRecycleBin(tabState.CurrentLocationValue):
-                _recycleBin.Restore(vm.FileList.ResolveTargetTokens());
-                tabState.RequestRefresh();
-                e.Handled = true;
-                break;
-
-            // ── F2 — inline rename ────────────────────────────────────────
-            case Key.F2:
-                BeginInlineRename(vm);
-                e.Handled = true;
-                break;
-
-            // ── o — open the context menu (MENU mode) for the cursor/selection ──
-            case Key.O when noMod && focus == VFocus.List:
-                OpenContextMenuAtCursor(vm, tabState);
-                e.Handled = true;
-                break;
         }
     }
 
-    // ── Selection / VISUAL helpers ────────────────────────────────────────
-
-    private void ToggleSelectionAtCursor(MainWindowViewModel vm, TabState tabState)
+    private static KeyContext BuildKeyContext(TabState tabState)
     {
-        FileItemRow? row = vm.FileList.CursorRow;
-        if (row is null || row.IsParentEntry)
-        {
-            return;
-        }
-        tabState.SetSelection(vm.FileList.ToggleSelection(tabState.SelectionValue, row.Index));
-        vm.FileList.MoveCursorDown();
-        ScrollFileListToCursor();
+        return new(
+            tabState.ModeValue.Kind(),
+            tabState.FocusValue,
+            KnownLocations.IsRecycleBin(tabState.CurrentLocationValue)
+        );
     }
 
-    private void HandleVisualKey(
-        KeyEventArgs e,
-        TabState tabState,
-        MainWindowViewModel vm,
-        int anchor
-    )
-    {
-        bool ctrl = (e.KeyboardDevice.Modifiers & ModifierKeys.Control) != 0;
-        bool shift = (e.KeyboardDevice.Modifiers & ModifierKeys.Shift) != 0;
-        bool noMod = e.KeyboardDevice.Modifiers == ModifierKeys.None;
-        bool moved = false;
-
-        switch (e.Key)
-        {
-            case Key.J when noMod:
-            case Key.Down when noMod:
-                vm.FileList.MoveCursorDown();
-                moved = true;
-                break;
-            case Key.K when noMod:
-            case Key.Up when noMod:
-                vm.FileList.MoveCursorUp();
-                moved = true;
-                break;
-            case Key.G when noMod:
-                vm.FileList.MoveCursorToTop();
-                moved = true;
-                break;
-            case Key.G when shift:
-                vm.FileList.MoveCursorToBottom();
-                moved = true;
-                break;
-            case Key.U when ctrl:
-                vm.FileList.MoveCursorPageUp(GetHalfPageSize());
-                moved = true;
-                break;
-            case Key.D when ctrl:
-                vm.FileList.MoveCursorPageDown(GetHalfPageSize());
-                moved = true;
-                break;
-            case Key.B when ctrl:
-            case Key.PageUp when noMod:
-                vm.FileList.MoveCursorPageUp(GetPageSize());
-                moved = true;
-                break;
-            case Key.F when ctrl:
-            case Key.PageDown when noMod:
-                vm.FileList.MoveCursorPageDown(GetPageSize());
-                moved = true;
-                break;
-            // ── File operations on the range, then back to NORMAL ─────────
-            case Key.Y when noMod: // copy
-                _fileOps.YankToClipboard(vm.FileList, tabState, cut: false);
-                ExitVisual(tabState);
-                e.Handled = true;
-                return;
-            case Key.D when noMod: // cut
-                _fileOps.YankToClipboard(vm.FileList, tabState, cut: true);
-                ExitVisual(tabState);
-                e.Handled = true;
-                return;
-            case Key.X when noMod: // trash
-            case Key.Delete when noMod:
-                _ = _fileOps.TrashAsync(vm.FileList, tabState, _hwnd);
-                ExitVisual(tabState);
-                e.Handled = true;
-                return;
-            case Key.Delete when shift: // permanent delete
-                _ = _fileOps.DeletePermanentAsync(vm.FileList, tabState, _hwnd);
-                ExitVisual(tabState);
-                e.Handled = true;
-                return;
-            case Key.Y when shift: // copy paths as text
-                _fileOps.CopyPathsAsText(vm.FileList, tabState);
-                ExitVisual(tabState);
-                e.Handled = true;
-                return;
-
-            case Key.Return:
-                // Confirm: keep the selection, back to NORMAL.
-                tabState.DispatchModeEvent(new ModeEvent.ConfirmMode());
-                e.Handled = true;
-                return;
-            case Key.Escape:
-                tabState.SetSelection(System.Collections.Immutable.ImmutableHashSet<int>.Empty);
-                tabState.DispatchModeEvent(new ModeEvent.ExitToNormal());
-                e.Handled = true;
-                return;
-        }
-
-        if (moved)
-        {
-            tabState.SetSelection(vm.FileList.RangeSelection(anchor, vm.FileList.CursorIndex));
-            ScrollFileListToCursor();
-        }
-        e.Handled = true;
-    }
-
-    /// <summary>Leaves VISUAL after an operation (keeps selection; refresh clears stale ones).</summary>
-    private static void ExitVisual(TabState tabState)
-    {
-        tabState.DispatchModeEvent(new ModeEvent.ConfirmMode());
-    }
-
-    // ── Inline rename ──────────────────────────────────────────────────────
+    // Inline rename
 
     private void BeginInlineRename(MainWindowViewModel vm)
     {
@@ -851,7 +307,7 @@ public partial class MainWindow : Window
         _ = _fileOps.RenameAsync(row.FullPath, newName, _tabManager.GetActiveTabState(), _hwnd);
     }
 
-    // ── Context menu (MENU mode) ──────────────────────────────────────────
+    // Context menu (MENU mode)
 
     /// <summary>Opens the context menu for the cursor/selection (the <c>o</c> key).</summary>
     private void OpenContextMenuAtCursor(MainWindowViewModel vm, TabState tabState)
@@ -897,7 +353,7 @@ public partial class MainWindow : Window
         int generation
     )
     {
-        HostedMenuSession? session = null;
+        HostedMenuSession? session;
         try
         {
             session = background
@@ -918,36 +374,46 @@ public partial class MainWindow : Window
 
     private List<MenuItemViewModel> BuildItemMenuItems(MainWindowViewModel vm, TabState tab)
     {
-        FileListViewModel list = vm.FileList;
         bool inBin = KnownLocations.IsRecycleBin(tab.CurrentLocationValue);
         return
         [
-            new() { Text = "Open", SelfAction = () => list.ActivateCurrentItem(tab) },
-            new() { Text = "Open With", SelfAction = () => RunCommand(tab, "openwith") },
+            new() { Text = "Open", SelfAction = () => Dispatch(new AppAction.ActivateItem()) },
+            new() { Text = "Open With", SelfAction = () => Dispatch(new AppAction.OpenWith("")) },
+            MenuItemViewModel.Separator,
+            new() { Text = "Cut", SelfAction = () => Dispatch(new AppAction.Yank(Cut: true)) },
+            new() { Text = "Copy", SelfAction = () => Dispatch(new AppAction.Yank(Cut: false)) },
+            new() { Text = "Paste", SelfAction = () => Dispatch(new AppAction.Paste()) },
+            new() { Text = "Copy Path", SelfAction = () => Dispatch(new AppAction.CopyPaths()) },
+            MenuItemViewModel.Separator,
+            new() { Text = "Rename", SelfAction = () => Dispatch(new AppAction.BeginRename()) },
+            new()
+            {
+                Text = "Trash",
+                // Inside the bin, "Trash" is a permanent delete (matches the x key).
+                SelfAction = () =>
+                    Dispatch(inBin ? new AppAction.DeletePermanent() : new AppAction.Trash()),
+            },
+            new() { Text = "Delete", SelfAction = () => Dispatch(new AppAction.DeletePermanent()) },
+            MenuItemViewModel.Separator,
+            new() { Text = "Zip", SelfAction = () => Dispatch(new AppAction.Zip("")) },
+            new() { Text = "Unzip", SelfAction = () => Dispatch(new AppAction.Unzip("")) },
+            new()
+            {
+                Text = "Properties",
+                SelfAction = () => Dispatch(new AppAction.ShowProperties("")),
+            },
             MenuItemViewModel.Separator,
             new()
             {
-                Text = "Cut",
-                SelfAction = () => _fileOps.YankToClipboard(list, tab, cut: true),
+                Text = "New File",
+                SelfAction = () =>
+                    Dispatch(new AppAction.EnterMode(ModeTarget.Command, "newfile ")),
             },
             new()
             {
-                Text = "Copy",
-                SelfAction = () => _fileOps.YankToClipboard(list, tab, cut: false),
+                Text = "New Folder",
+                SelfAction = () => Dispatch(new AppAction.EnterMode(ModeTarget.Command, "mkdir ")),
             },
-            new() { Text = "Paste", SelfAction = () => _ = _fileOps.PasteAsync(tab, _hwnd) },
-            new() { Text = "Copy Path", SelfAction = () => _fileOps.CopyPathsAsText(list, tab) },
-            MenuItemViewModel.Separator,
-            new() { Text = "Rename", SelfAction = () => BeginInlineRename(vm) },
-            new() { Text = "Trash", SelfAction = () => TrashTargets(vm, tab, inBin) },
-            new() { Text = "Delete", SelfAction = () => DeleteTargets(vm, tab, inBin) },
-            MenuItemViewModel.Separator,
-            new() { Text = "Zip", SelfAction = () => RunCommand(tab, "zip") },
-            new() { Text = "Unzip", SelfAction = () => RunCommand(tab, "unzip") },
-            new() { Text = "Properties", SelfAction = () => RunCommand(tab, "properties") },
-            MenuItemViewModel.Separator,
-            new() { Text = "New File", SelfAction = () => PrefillCommand(tab, "newfile ") },
-            new() { Text = "New Folder", SelfAction = () => PrefillCommand(tab, "mkdir ") },
             MenuItemViewModel.Separator,
             new()
             {
@@ -957,18 +423,18 @@ public partial class MainWindow : Window
                     new()
                     {
                         Text = "Pin to Programs",
-                        SelfAction = () => RunCommand(tab, "pin programs"),
+                        SelfAction = () => Dispatch(new AppAction.Pin("programs")),
                     },
                     new()
                     {
                         Text = "Pin to Desktop",
-                        SelfAction = () => RunCommand(tab, "pin desktop"),
+                        SelfAction = () => Dispatch(new AppAction.Pin("desktop")),
                     },
                 ],
             },
             MenuItemViewModel.Separator,
-            new() { Text = "Undo", SelfAction = () => _ = _history.UndoAsync() },
-            new() { Text = "Redo", SelfAction = () => _ = _history.RedoAsync() },
+            new() { Text = "Undo", SelfAction = () => Dispatch(new AppAction.Undo()) },
+            new() { Text = "Redo", SelfAction = () => Dispatch(new AppAction.Redo()) },
         ];
     }
 
@@ -976,56 +442,34 @@ public partial class MainWindow : Window
     {
         return
         [
-            new() { Text = "Paste", SelfAction = () => _ = _fileOps.PasteAsync(tab, _hwnd) },
-            new() { Text = "New File", SelfAction = () => PrefillCommand(tab, "newfile ") },
-            new() { Text = "New Folder", SelfAction = () => PrefillCommand(tab, "mkdir ") },
+            new() { Text = "Paste", SelfAction = () => Dispatch(new AppAction.Paste()) },
+            new()
+            {
+                Text = "New File",
+                SelfAction = () =>
+                    Dispatch(new AppAction.EnterMode(ModeTarget.Command, "newfile ")),
+            },
+            new()
+            {
+                Text = "New Folder",
+                SelfAction = () => Dispatch(new AppAction.EnterMode(ModeTarget.Command, "mkdir ")),
+            },
             new() { Text = "Copy Path", SelfAction = () => CopyCurrentFolderPath(tab) },
-            new() { Text = "Open Terminal", SelfAction = () => RunCommand(tab, "terminal") },
+            new()
+            {
+                Text = "Open Terminal",
+                SelfAction = () => Dispatch(new AppAction.OpenTerminal("")),
+            },
             MenuItemViewModel.Separator,
-            new() { Text = "Undo", SelfAction = () => _ = _history.UndoAsync() },
-            new() { Text = "Redo", SelfAction = () => _ = _history.RedoAsync() },
+            new() { Text = "Undo", SelfAction = () => Dispatch(new AppAction.Undo()) },
+            new() { Text = "Redo", SelfAction = () => Dispatch(new AppAction.Redo()) },
         ];
     }
 
-    /// <summary>Runs a COMMAND-mode command (no-arg shell-delegation items reuse the same path).</summary>
-    private void RunCommand(TabState tab, string commandLine)
+    /// <summary>Dispatches a menu-originated action through the central dispatcher.</summary>
+    private void Dispatch(AppAction action)
     {
-        _executor.Execute(commandLine, tab);
-    }
-
-    private void TrashTargets(MainWindowViewModel vm, TabState tab, bool inBin)
-    {
-        if (inBin)
-        {
-            _recycleBin.DeletePermanently(vm.FileList.ResolveTargetTokens(), _hwnd);
-            tab.RequestRefresh();
-        }
-        else
-        {
-            _ = _fileOps.TrashAsync(vm.FileList, tab, _hwnd);
-        }
-    }
-
-    private void DeleteTargets(MainWindowViewModel vm, TabState tab, bool inBin)
-    {
-        if (inBin)
-        {
-            _recycleBin.DeletePermanently(vm.FileList.ResolveTargetTokens(), _hwnd);
-            tab.RequestRefresh();
-        }
-        else
-        {
-            _ = _fileOps.DeletePermanentAsync(vm.FileList, tab, _hwnd);
-        }
-    }
-
-    private void PrefillCommand(TabState tab, string seed)
-    {
-        tab.DispatchModeEvent(new ModeEvent.EnterCommand());
-        Dispatcher.BeginInvoke(
-            System.Windows.Threading.DispatcherPriority.Input,
-            new Action(() => CommandBarControl.Prefill(seed))
-        );
+        _dispatcher.Dispatch(action);
     }
 
     private void CopyCurrentFolderPath(TabState tab)
@@ -1035,52 +479,6 @@ public partial class MainWindow : Window
             ShellClipboard.SetText(dir);
             tab.SetStatusMessage("Copied folder path", isError: false);
         }
-    }
-
-    /// <summary>MENU-mode navigation keys (hjkl / g / G / Ctrl+D/U / Enter / Esc).</summary>
-    private void HandleMenuKey(KeyEventArgs e, MainWindowViewModel vm, TabState tabState)
-    {
-        ContextMenuViewModel menu = vm.ContextMenu;
-        bool ctrl = (e.KeyboardDevice.Modifiers & ModifierKeys.Control) != 0;
-        bool shift = (e.KeyboardDevice.Modifiers & ModifierKeys.Shift) != 0;
-        switch (e.Key)
-        {
-            case Key.D when ctrl:
-                menu.PageDown();
-                break;
-            case Key.U when ctrl:
-                menu.PageUp();
-                break;
-            case Key.J:
-            case Key.Down:
-                menu.MoveDown();
-                break;
-            case Key.K:
-            case Key.Up:
-                menu.MoveUp();
-                break;
-            case Key.G when shift:
-                menu.MoveToLast();
-                break;
-            case Key.G:
-                menu.MoveToFirst();
-                break;
-            case Key.L:
-            case Key.Right:
-                _ = menu.EnterSubmenuAsync();
-                break;
-            case Key.H:
-            case Key.Left:
-                menu.Back();
-                break;
-            case Key.Return:
-                InvokeMenuSelection(vm, tabState);
-                break;
-            case Key.Escape:
-                CloseContextMenu(tabState);
-                break;
-        }
-        e.Handled = true;
     }
 
     /// <summary>
@@ -1198,79 +596,26 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// Enters COMMAND mode on ":". Uses text input (not a physical key) so it
-    /// works on any keyboard layout — on JIS ":" is a dedicated key, not Shift+";".
+    /// Routes character input (":", "!", "/", "[ ] { }") through the binding table.
+    /// Using text input (not physical keys) keeps these layout-independent — on JIS
+    /// ":" is a dedicated key, not Shift+";".
     /// </summary>
     protected override void OnPreviewTextInput(TextCompositionEventArgs e)
     {
         base.OnPreviewTextInput(e);
 
-        TabState tabState = _tabManager.GetActiveTabState();
-        if (tabState.ModeValue is Mode.Normal && e.Text == ":")
+        // Text inputs (bars, inline rename) handle their own typing.
+        if (Keyboard.FocusedElement is TextBox)
         {
-            tabState.DispatchModeEvent(new ModeEvent.EnterCommand());
-            Dispatcher.BeginInvoke(
-                System.Windows.Threading.DispatcherPriority.Input,
-                new Action(() => CommandBarControl.FocusInput())
-            );
-            e.Handled = true;
+            return;
         }
-        else if (tabState.ModeValue is Mode.Normal && e.Text == "!")
-        {
-            // "!" enters COMMAND mode pre-seeded with "! " (external-program shortcut).
-            tabState.DispatchModeEvent(new ModeEvent.EnterCommand());
-            Dispatcher.BeginInvoke(
-                System.Windows.Threading.DispatcherPriority.Input,
-                new Action(() => CommandBarControl.Prefill("! "))
-            );
-            e.Handled = true;
-        }
-        else if (tabState.ModeValue is Mode.Normal && e.Text == "/")
-        {
-            EnterSearchOrFilter(tabState, new ModeEvent.EnterSearch());
-            e.Handled = true;
-        }
-        // Tab switch ([ ]) and reorder ({ }). Character-based for layout
-        // independence; skipped while a text box (e.g. inline rename) has focus.
-        else if (tabState.ModeValue is Mode.Normal && Keyboard.FocusedElement is not TextBox)
-        {
-            switch (e.Text)
-            {
-                case "]":
-                    _tabManager.ActivateRelative(+1);
-                    e.Handled = true;
-                    break;
-                case "[":
-                    _tabManager.ActivateRelative(-1);
-                    e.Handled = true;
-                    break;
-                case "}":
-                    _tabManager.MoveActiveTab(+1);
-                    e.Handled = true;
-                    break;
-                case "{":
-                    _tabManager.MoveActiveTab(-1);
-                    e.Handled = true;
-                    break;
-            }
-        }
-    }
 
-    /// <summary>Maps a digit key (top row or numpad) to 0–9; false for non-digits.</summary>
-    private static bool TryGetDigit(Key key, out int digit)
-    {
-        if (key is >= Key.D0 and <= Key.D9)
+        TabState tabState = _tabManager.GetActiveTabState();
+        if (KeyBindingMap.Default.ResolveText(BuildKeyContext(tabState), e.Text) is { } action)
         {
-            digit = key - Key.D0;
-            return true;
+            _dispatcher.Dispatch(action);
+            e.Handled = true;
         }
-        if (key is >= Key.NumPad0 and <= Key.NumPad9)
-        {
-            digit = key - Key.NumPad0;
-            return true;
-        }
-        digit = 0;
-        return false;
     }
 
     /// <summary>Enters SEARCH or FILTER and focuses the query bar.</summary>
@@ -1283,7 +628,7 @@ public partial class MainWindow : Window
         );
     }
 
-    // ── Address-bar toolbar buttons (delegate to the same paths as the keys) ──
+    // Address-bar toolbar buttons (delegate to the same paths as the keys)
 
     private void NavBack_Click(object sender, RoutedEventArgs e)
     {
@@ -1324,7 +669,7 @@ public partial class MainWindow : Window
         EnterSearchOrFilter(_tabManager.GetActiveTabState(), new ModeEvent.EnterSearch());
     }
 
-    // ── Mouse handlers ────────────────────────────────────────────────────
+    // Mouse handlers
 
     /// <summary>Single click on Tree — switch focus to Tree panel (and leave ADDRESS).</summary>
     private void FileTree_PreviewMouseDown(object sender, MouseButtonEventArgs e)
@@ -1376,6 +721,7 @@ public partial class MainWindow : Window
         bool ctrl = (Keyboard.Modifiers & ModifierKeys.Control) != 0;
         bool shift = (Keyboard.Modifiers & ModifierKeys.Shift) != 0;
 
+        _deferSelectionClear = false;
         if (ctrl && row is { IsParentEntry: false })
         {
             tabState.SetSelection(vm.FileList.ToggleSelection(tabState.SelectionValue, row.Index));
@@ -1383,6 +729,12 @@ public partial class MainWindow : Window
         else if (shift && row is { IsParentEntry: false })
         {
             tabState.SetSelection(vm.FileList.RangeSelection(vm.FileList.CursorIndex, row.Index));
+        }
+        else if (row is { IsParentEntry: false } && tabState.SelectionValue.Contains(row.Index))
+        {
+            // Plain click on an already-selected row: keep the multi-selection so a
+            // drag can carry it, and clear it on mouse-up only if no drag happened.
+            _deferSelectionClear = true;
         }
         else
         {
@@ -1395,7 +747,22 @@ public partial class MainWindow : Window
         _dragStart = e.GetPosition(null);
     }
 
-    // ── Drag & drop ────────────────────────────────────────────────────────
+    /// <summary>
+    /// Completes a deferred selection clear: if a plain click on an already-selected
+    /// row did not turn into a drag, collapse the multi-selection on release.
+    /// </summary>
+    private void FileList_PreviewMouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+    {
+        if (_deferSelectionClear)
+        {
+            _deferSelectionClear = false;
+            _tabManager
+                .GetActiveTabState()
+                .SetSelection(System.Collections.Immutable.ImmutableHashSet<int>.Empty);
+        }
+    }
+
+    // Drag & drop
 
     private void FileList_PreviewMouseMove(object sender, MouseEventArgs e)
     {
@@ -1429,8 +796,31 @@ public partial class MainWindow : Window
         {
             return;
         }
+
+        // A drag is starting, so the deferred mouse-up clear must not fire.
+        _deferSelectionClear = false;
+
         DataObject data = ShellClipboard.BuildDataObject(paths);
-        DragDrop.DoDragDrop(FileList, data, DragDropEffects.Move | DragDropEffects.Copy);
+        _dragOverlay =
+            paths.Count >= 2 ? DragCountOverlay.Begin(paths.Count, _overlayInterop) : null;
+        try
+        {
+            DragDrop.DoDragDrop(FileList, data, DragDropEffects.Move | DragDropEffects.Copy);
+        }
+        finally
+        {
+            _dragOverlay?.Close();
+            _dragOverlay = null;
+        }
+    }
+
+    /// <summary>Trails the drag-count badge under the cursor while a multi-item drag is active.</summary>
+    private void FileList_GiveFeedback(object sender, GiveFeedbackEventArgs e)
+    {
+        if (_dragOverlay is not null && _overlayInterop.TryGetCursorPosition(out int x, out int y))
+        {
+            _dragOverlay.MoveToScreen(x, y);
+        }
     }
 
     private void Panel_DragOver(object sender, DragEventArgs e)
@@ -1517,12 +907,12 @@ public partial class MainWindow : Window
             {
                 return match;
             }
-            d = VisualTreeHelper.GetParent(d);
+            d = GetParent(d);
         }
         return null;
     }
 
-    /// <summary>Walks up the visual tree from a click source to the bound FileItemRow.</summary>
+    /// <summary>Walks up the tree from a click source to the bound FileItemRow.</summary>
     private static FileItemRow? FindRow(object source)
     {
         DependencyObject? d = source as DependencyObject;
@@ -1532,9 +922,24 @@ public partial class MainWindow : Window
             {
                 return row;
             }
-            d = VisualTreeHelper.GetParent(d);
+            d = GetParent(d);
         }
         return null;
+    }
+
+    /// <summary>
+    /// Parent walk that tolerates content elements. <c>e.OriginalSource</c> can be a
+    /// <see cref="System.Windows.Documents.Run"/> (HighlightBehavior fills row labels with runs),
+    /// which is not a Visual — <see cref="VisualTreeHelper.GetParent"/> would throw on it, so fall
+    /// back to the logical tree for non-Visual nodes.
+    /// </summary>
+    private static DependencyObject? GetParent(DependencyObject d)
+    {
+        if (d is Visual or System.Windows.Media.Media3D.Visual3D)
+        {
+            return VisualTreeHelper.GetParent(d);
+        }
+        return LogicalTreeHelper.GetParent(d);
     }
 
     /// <summary>Leaves ADDRESS/COMMAND mode when a panel is clicked, keeping mode in sync with focus.</summary>
@@ -1554,17 +959,16 @@ public partial class MainWindow : Window
     private void FileList_MouseDoubleClick(object sender, MouseButtonEventArgs e)
     {
         MainWindowViewModel vm = (MainWindowViewModel)DataContext;
-        TabState tabState = _tabManager.GetActiveTabState();
         int idx = FileList.SelectedIndex;
         if (idx < 0)
         {
             return;
         }
         vm.FileList.CursorIndex = idx;
-        vm.FileList.ActivateCurrentItem(tabState);
+        _dispatcher.Dispatch(new AppAction.ActivateItem());
     }
 
-    // ── Helpers ───────────────────────────────────────────────────────────
+    // Helpers
 
     /// <summary>
     /// Navigates the FileList to the directory currently selected in the Tree,
@@ -1683,7 +1087,7 @@ public partial class MainWindow : Window
         return Math.Max(1, (int)(FileList.ActualHeight / estimatedItemHeight));
     }
 
-    // ── Column sort ───────────────────────────────────────────────────────
+    // Column sort
 
     /// <summary>
     /// Handles a click on any GridViewColumnHeader inside the FileList.

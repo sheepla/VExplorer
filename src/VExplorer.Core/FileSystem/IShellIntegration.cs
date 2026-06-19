@@ -2,7 +2,7 @@ namespace VExplorer.Core.FileSystem;
 
 /// <summary>
 /// Thin wrappers over shell UI that VExplorer delegates to rather than
-/// re-implementing (原則3): the standard Properties dialog and the
+/// re-implementing: the standard Properties dialog and the
 /// "Open with" picker. Implemented in the Shell layer.
 /// </summary>
 public interface IShellIntegration

@@ -35,15 +35,11 @@ public static class PathResolver
                 ? Path.GetFullPath(path)
                 : Path.GetFullPath(path, baseDirectory);
         }
-        catch (ArgumentException)
-        {
-            return path;
-        }
-        catch (NotSupportedException)
-        {
-            return path;
-        }
-        catch (PathTooLongException)
+        // Malformed input (invalid characters, unsupported format, too long) is not
+        // an error here: this is best-effort normalization of user-typed text, and
+        // the contract is to return it unchanged so the caller validates existence.
+        catch (Exception ex)
+            when (ex is ArgumentException or NotSupportedException or PathTooLongException)
         {
             return path;
         }

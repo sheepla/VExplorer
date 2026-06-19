@@ -88,13 +88,25 @@ public sealed partial class ContextMenuViewModel : ObservableObject
         }
     }
 
-    public void MoveDown() => Step(+1);
+    public void MoveDown()
+    {
+        Step(+1);
+    }
 
-    public void MoveUp() => Step(-1);
+    public void MoveUp()
+    {
+        Step(-1);
+    }
 
-    public void PageDown() => Step(+PageStep);
+    public void PageDown()
+    {
+        Step(+PageStep);
+    }
 
-    public void PageUp() => Step(-PageStep);
+    public void PageUp()
+    {
+        Step(-PageStep);
+    }
 
     public void MoveToFirst()
     {
@@ -203,6 +215,8 @@ public sealed partial class ContextMenuViewModel : ObservableObject
         _session = null;
     }
 
+    // Helpers
+
     private void PushColumn(IReadOnlyList<MenuItemViewModel> items)
     {
         Columns.Add(new MenuColumnViewModel(items, NextSelectable(items, -1, +1)));
@@ -221,11 +235,15 @@ public sealed partial class ContextMenuViewModel : ObservableObject
         return items.Count > 0 ? items : [Disabled("(no items)")];
     }
 
-    private static MenuItemViewModel MoreOptionsEntry() =>
-        new() { Text = "More options", IsShellRoot = true };
+    private static MenuItemViewModel MoreOptionsEntry()
+    {
+        return new() { Text = "More options", IsShellRoot = true };
+    }
 
-    private static MenuItemViewModel Disabled(string text) =>
-        new() { Text = text, IsEnabled = false };
+    private static MenuItemViewModel Disabled(string text)
+    {
+        return new() { Text = text, IsEnabled = false };
+    }
 
     private static IReadOnlyList<MenuItemViewModel> BuildShellItems(
         IReadOnlyList<ShellMenuItem> items

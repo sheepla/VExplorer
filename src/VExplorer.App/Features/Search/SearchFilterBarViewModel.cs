@@ -18,6 +18,9 @@ public sealed partial class SearchFilterBarViewModel : ObservableObject, IDispos
     private bool _suppress;
     private bool _wasActive;
 
+    /// <summary>The active bar kind (Search/Filter), or null while inactive — detects a Search↔Filter switch.</summary>
+    private Mode? _activeKind;
+
     [ObservableProperty]
     private bool _isActive;
 
@@ -39,11 +42,14 @@ public sealed partial class SearchFilterBarViewModel : ObservableObject, IDispos
     {
         Prefix = mode is Mode.Filter ? "FILTER" : "SEARCH";
         bool active = mode is Mode.Search or Mode.Filter;
-        if (active == _wasActive)
+        // A Search↔Filter switch keeps the bar active but is a fresh input.
+        bool kindChanged = active && _activeKind?.GetType() != mode.GetType();
+        if (active == _wasActive && !kindChanged)
         {
             return;
         }
         _wasActive = active;
+        _activeKind = active ? mode : null;
         IsActive = active;
         if (active)
         {

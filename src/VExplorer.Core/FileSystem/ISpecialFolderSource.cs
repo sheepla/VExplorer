@@ -2,8 +2,7 @@ namespace VExplorer.Core.FileSystem;
 
 /// <summary>
 /// Well-known user folders that the address bar can complete by name.
-/// Restricted to the profile-based "place" folders (役割A / alias) from
-/// <c>VExplorer_SpecialFolders.md</c>; virtual folders (Recycle Bin, Network)
+/// Restricted to the profile-based "place" folders; virtual folders (Recycle Bin, Network)
 /// have no physical path and are handled elsewhere.
 /// </summary>
 public enum KnownFolder

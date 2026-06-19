@@ -40,7 +40,9 @@ public sealed class TabState : IDisposable
         _focus = new ReactiveProperty<Modes.Focus>(Modes.Focus.List);
         _selection = new ReactiveProperty<ImmutableHashSet<int>>(ImmutableHashSet<int>.Empty);
         _cursorIndex = new ReactiveProperty<int>(0);
-        _statusMessage = new ReactiveProperty<StatusMessage>(new StatusMessage("", false));
+        _statusMessage = new ReactiveProperty<StatusMessage>(
+            new StatusMessage("", StatusSeverity.Info)
+        );
         _isLoading = new ReactiveProperty<bool>(false);
     }
 
@@ -94,6 +96,8 @@ public sealed class TabState : IDisposable
         NavigateTo(Location.ForPath(path));
     }
 
+    // Navigation history (back / forward)
+
     /// <summary>The visited locations, oldest first (for address-bar history candidates).</summary>
     public IReadOnlyList<Location> History => _history;
 
@@ -128,7 +132,7 @@ public sealed class TabState : IDisposable
         {
             throw new InvalidOperationException("VISUAL mode requires LIST focus.");
         }
-        _mode.Value = ModeMachine.Transition(_mode.Value, @event);
+        _mode.Value = ModeStateMachine.Transition(_mode.Value, @event);
     }
 
     public void SetFocus(Modes.Focus focus)
@@ -155,7 +159,12 @@ public sealed class TabState : IDisposable
 
     public void SetStatusMessage(string message, bool isError = true)
     {
-        _statusMessage.Value = new StatusMessage(message, isError);
+        SetStatusMessage(message, isError ? StatusSeverity.Error : StatusSeverity.Info);
+    }
+
+    public void SetStatusMessage(string message, StatusSeverity severity)
+    {
+        _statusMessage.Value = new StatusMessage(message, severity);
     }
 
     /// <summary>
@@ -167,7 +176,7 @@ public sealed class TabState : IDisposable
     {
         if (_statusMessage.Value.IsError)
         {
-            _statusMessage.Value = new StatusMessage("", false);
+            _statusMessage.Value = new StatusMessage("", StatusSeverity.Info);
         }
     }
 

@@ -6,14 +6,20 @@
   xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
   mc:Ignorable="d"
 >
-  <!-- Always-visible thin border so it reads as an address bar; blue while editing. -->
-  <Border BorderThickness="1" Padding="4,3" CornerRadius="2">
+  <!-- Always-visible thin border so it reads as an address bar; blue while editing.
+       Slightly taller vertical padding gives the bar a little breathing room. -->
+  <Border
+    Background="{DynamicResource InputBackground}"
+    BorderThickness="1"
+    Padding="4,5"
+    CornerRadius="2"
+  >
     <Border.Style>
       <Style TargetType="Border">
-        <Setter Property="BorderBrush" Value="#ADADAD" />
+        <Setter Property="BorderBrush" Value="{DynamicResource ControlBorderBrush}" />
         <Style.Triggers>
           <DataTrigger Binding="{Binding IsActive}" Value="True">
-            <Setter Property="BorderBrush" Value="#0078D4" />
+            <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
           </DataTrigger>
         </Style.Triggers>
       </Style>
@@ -29,7 +35,6 @@
         MouseLeftButtonDown="Display_MouseLeftButtonDown"
         Visibility="{Binding IsActive, Converter={StaticResource InverseBoolToVisibility}}"
       />
-
       <!-- Editable buffer (ADDRESS mode). PreviewKeyDown is handled in code-behind. -->
       <TextBox
         x:Name="AddressInput"
@@ -38,7 +43,6 @@
         VerticalContentAlignment="Center"
         Visibility="{Binding IsActive, Converter={StaticResource BoolToVisibility}}"
       />
-
       <!-- Completion popup, left-aligned to the input and matching its width. -->
       <Popup
         IsOpen="{Binding IsPopupOpen}"
@@ -50,8 +54,8 @@
         MaxHeight="320"
       >
         <Border
-          Background="White"
-          BorderBrush="#0078D4"
+          Background="{DynamicResource SurfaceBackground}"
+          BorderBrush="{DynamicResource AccentBrush}"
           BorderThickness="1"
           Width="{Binding ActualWidth, ElementName=AddressInput}"
           HorizontalAlignment="Left"

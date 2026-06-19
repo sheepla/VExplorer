@@ -1,7 +1,9 @@
 using System.Collections.ObjectModel;
+using System.Diagnostics;
 using System.Windows;
 using System.Windows.Media.Imaging;
 using CommunityToolkit.Mvvm.ComponentModel;
+using Serilog;
 using VExplorer.App.Features.Shell;
 using VExplorer.Core.FileSystem;
 
@@ -175,6 +177,7 @@ public sealed partial class TreeNodeViewModel : ObservableObject
 
         List<TreeNodeViewModel> newChildren = [];
         int omitted = 0;
+        long startTimestamp = Stopwatch.GetTimestamp();
         try
         {
             // Bound the tree enumeration with the same time budget as the list, so a
@@ -211,7 +214,18 @@ public sealed partial class TreeNodeViewModel : ObservableObject
                 }
             }
         }
-        catch (Exception) { }
+        catch (Exception ex)
+        {
+            // A failed subtree load must not crash the tree; show no children.
+            Log.Warning(ex, "Failed to load tree children for {Location}", Location);
+        }
+
+        Log.Debug(
+            "Loaded {Count} tree children for {Location} in {ElapsedMs}ms",
+            newChildren.Count,
+            Location,
+            Stopwatch.GetElapsedTime(startTimestamp).TotalMilliseconds
+        );
 
         // Resolve icons while still on the worker thread (folders almost always
         // hit the shared cache, so this is near-free).

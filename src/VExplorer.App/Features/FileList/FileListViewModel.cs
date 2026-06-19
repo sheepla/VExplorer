@@ -12,7 +12,10 @@ using VExplorer.Core.State;
 
 namespace VExplorer.App.Features.FileList;
 
-public sealed partial class FileListViewModel : ObservableObject, IDisposable
+public sealed partial class FileListViewModel
+    : ObservableObject,
+        IDisposable,
+        VExplorer.App.Actions.ICursorTarget
 {
     private readonly TabState _tabState;
     private readonly IDirectoryLister _lister;
@@ -282,7 +285,7 @@ public sealed partial class FileListViewModel : ObservableObject, IDisposable
         _loadAllSubject.OnNext(Unit.Default);
     }
 
-    // ── Cursor movement ─────────────────────────────────────────────────────
+    // Cursor movement
 
     public void MoveCursorDown()
     {
@@ -322,11 +325,28 @@ public sealed partial class FileListViewModel : ObservableObject, IDisposable
         CursorIndex = Math.Min(DisplayItems.Count - 1, CursorIndex + step);
     }
 
-    // ── SEARCH / FILTER ──────────────────────────────────────────────────────
+    // SEARCH / FILTER
 
     /// <summary>Reacts to SEARCH/FILTER mode changes (incremental jump / live narrow / cancel).</summary>
     private void ApplyMode(Mode mode)
     {
+        // Leaving an unconfirmed SEARCH/FILTER undoes its preview, whether the
+        // next mode is NORMAL or another submode (e.g. FILTER → SEARCH).
+        if (_prevMode is Mode.Search { IsConfirmed: false } && mode is not Mode.Search)
+        {
+            // Search cancelled: drop matches and restore the cursor.
+            _searchMatches = [];
+            _searchPos = -1;
+            HighlightQuery = "";
+            SearchMatchCount = 0;
+            SearchMatchOrdinal = 0;
+            CursorIndex = ClampCursor(_searchOrigin, DisplayItems.Count);
+        }
+        else if (_prevMode is Mode.Filter { IsConfirmed: false } && mode is not Mode.Filter)
+        {
+            SetFilter(null); // Filter cancelled: drop the narrowing.
+        }
+
         switch (mode)
         {
             case Mode.Search search:
@@ -339,23 +359,6 @@ public sealed partial class FileListViewModel : ObservableObject, IDisposable
 
             case Mode.Filter filter:
                 SetFilter(filter.Query);
-                break;
-
-            case Mode.Normal:
-                if (_prevMode is Mode.Search { IsConfirmed: false })
-                {
-                    // Search cancelled (Esc): drop matches and restore the cursor.
-                    _searchMatches = [];
-                    _searchPos = -1;
-                    HighlightQuery = "";
-                    SearchMatchCount = 0;
-                    SearchMatchOrdinal = 0;
-                    CursorIndex = ClampCursor(_searchOrigin, DisplayItems.Count);
-                }
-                else if (_prevMode is Mode.Filter { IsConfirmed: false })
-                {
-                    SetFilter(null); // Filter cancelled: drop the narrowing.
-                }
                 break;
         }
         _prevMode = mode;
@@ -474,7 +477,7 @@ public sealed partial class FileListViewModel : ObservableObject, IDisposable
         SearchMatchOrdinal = 0;
     }
 
-    // ── Navigation ──────────────────────────────────────────────────────────
+    // Navigation
 
     /// <summary>
     /// Navigate into the directory under the cursor (bound to <c>l</c> / Right).
@@ -550,7 +553,7 @@ public sealed partial class FileListViewModel : ObservableObject, IDisposable
         }
     }
 
-    // ── Selection helpers ─────────────────────────────────────────────────────
+    // Selection helpers
 
     /// <summary>The row under the cursor, or null when out of range.</summary>
     public FileItemRow? CursorRow =>
@@ -659,7 +662,7 @@ public sealed partial class FileListViewModel : ObservableObject, IDisposable
         return builder.ToImmutable();
     }
 
-    // ── Sorting ───────────────────────────────────────────────────────────────
+    // Sorting
 
     public void SortBy(string column)
     {
@@ -676,7 +679,7 @@ public sealed partial class FileListViewModel : ObservableObject, IDisposable
         ApplySort(CursorRow?.Name);
     }
 
-    // ── Helpers ───────────────────────────────────────────────────────────────
+    // Helpers
 
     /// <summary>
     /// Filters and sorts the lightweight items on a worker thread (so a huge folder

@@ -8,7 +8,10 @@ using VExplorer.Core.State;
 
 namespace VExplorer.App.Features.Tree;
 
-public sealed partial class TreeViewModel : ObservableObject, IDisposable
+public sealed partial class TreeViewModel
+    : ObservableObject,
+        IDisposable,
+        VExplorer.App.Actions.ICursorTarget
 {
     public ObservableCollection<TreeNodeViewModel> Roots { get; } = [];
 
@@ -47,6 +50,8 @@ public sealed partial class TreeViewModel : ObservableObject, IDisposable
 
     /// <summary>The visible (non-placeholder, depth-first) nodes — used for scroll margin.</summary>
     public IReadOnlyList<TreeNodeViewModel> VisibleNodes => GetVisibleNodes();
+
+    // Cursor movement
 
     public void MoveCursorToTop()
     {
@@ -110,7 +115,7 @@ public sealed partial class TreeViewModel : ObservableObject, IDisposable
         SelectNode(visible[Math.Max(idx - 1, 0)]);
     }
 
-    // ── Expand / collapse (bound to l / h while Tree has focus) ───────────
+    // Expand / collapse (bound to l / h while Tree has focus)
 
     public void ExpandSelected()
     {
@@ -161,7 +166,7 @@ public sealed partial class TreeViewModel : ObservableObject, IDisposable
         }
     }
 
-    // ── Sync tree to current directory ────────────────────────────────────
+    // Sync tree to current directory
 
     public async Task NavigateToLocationAsync(Location location)
     {
@@ -251,7 +256,7 @@ public sealed partial class TreeViewModel : ObservableObject, IDisposable
         SelectNode(current);
     }
 
-    // ── Helpers ───────────────────────────────────────────────────────────
+    // Helpers
 
     private void SelectNode(TreeNodeViewModel node)
     {

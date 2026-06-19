@@ -3,10 +3,14 @@ using System.IO;
 using System.Windows;
 using System.Windows.Interop;
 using System.Windows.Threading;
+using Microsoft.Extensions.Logging;
+using VExplorer.App.Actions;
+using VExplorer.App.Diagnostics;
 using VExplorer.App.Features.FileList;
 using VExplorer.App.Features.FileOps;
 using VExplorer.App.Features.Help;
 using VExplorer.App.Settings;
+using VExplorer.Core.Actions;
 using VExplorer.Core.Commands;
 using VExplorer.Core.FileSystem;
 using VExplorer.Core.Modes;
@@ -23,172 +27,108 @@ public sealed class CommandExecutor(
     ISpecialFolderSource specialFolders,
     FileOpsService fileOps,
     TabManager tabManager,
-    IRecycleBinSource recycleBin,
     ILocationService locationService,
-    ICommandHistory commandHistory,
-    IOperationHistory operationHistory,
     AppState appState,
     SettingsStore settingsStore,
     IShortcutService shortcuts,
-    IShellIntegration shellIntegration
-)
+    IShellIntegration shellIntegration,
+    ErrorReporter errors,
+    ILogger<CommandExecutor> logger
+) : ICommandActionHandler
 {
     private readonly ISpecialFolderSource _specialFolders = specialFolders;
     private readonly FileOpsService _fileOps = fileOps;
     private readonly TabManager _tabManager = tabManager;
-    private readonly IRecycleBinSource _recycleBin = recycleBin;
     private readonly ILocationService _locationService = locationService;
-    private readonly ICommandHistory _commandHistory = commandHistory;
-    private readonly IOperationHistory _operationHistory = operationHistory;
     private readonly AppState _appState = appState;
     private readonly SettingsStore _settingsStore = settingsStore;
     private readonly IShortcutService _shortcuts = shortcuts;
     private readonly IShellIntegration _shellIntegration = shellIntegration;
+    private readonly ErrorReporter _errors = errors;
+    private readonly ILogger<CommandExecutor> _logger = logger;
 
     private static nint OwnerHwnd =>
         Application.Current?.MainWindow is { } w ? new WindowInteropHelper(w).Handle : 0;
 
     /// <summary>
-    /// Runs a command line. Returns a non-null buffer to re-seed the command bar
-    /// with (keeping it open) — used by argument-less <c>:cp</c>/<c>:mv</c> to
-    /// prompt for a destination; otherwise null (the bar closes).
+    /// Runs a command-specific action routed here by the dispatcher. Returns a
+    /// non-null buffer to re-seed the command bar — used by argument-less
+    /// <c>:cp</c>/<c>:mv</c> to prompt for a destination; otherwise null. Common
+    /// operations (trash, undo, paste, …) are handled by the dispatcher itself.
     /// </summary>
-    public string? Execute(string commandLine, TabState tabState)
+    public string? Handle(AppAction action, ActionContext context)
     {
-        string line = commandLine.Trim();
-        if (line.Length == 0)
+        TabState tabState = context.Tab;
+        FileListViewModel list = context.List;
+        switch (action)
         {
-            return null;
-        }
-        _commandHistory.Add(line);
-
-        int space = line.IndexOf(' ');
-        string name = space < 0 ? line : line[..space];
-        string args = space < 0 ? "" : line[(space + 1)..].Trim();
-
-        FileListViewModel list = _tabManager.GetActiveScopedService<FileListViewModel>();
-
-        // ":! PROGRAM ARGS" — everything after the "!" is the external command, so
-        // "!ls" and "! ls" both work regardless of the space.
-        if (name.StartsWith('!'))
-        {
-            ExecuteExternal(line[1..].Trim(), tabState);
-            return null;
-        }
-
-        switch (name.ToLowerInvariant())
-        {
-            case "cd":
-                ExecuteCd(args, tabState);
+            case AppAction.ChangeDirectory cd:
+                ExecuteCd(cd.Argument, tabState);
                 break;
-            case "pwd":
+            case AppAction.ShowPath:
                 tabState.SetStatusMessage(
                     tabState.CurrentLocationValue.DisplayName,
                     isError: false
                 );
                 break;
-            case "trash":
-                _ = _fileOps.TrashAsync(list, tabState, OwnerHwnd);
+            case AppAction.GoToSpecialFolder sf:
+                ExecuteSpecial(sf.Argument, tabState);
                 break;
-            case "delete":
-                if (KnownLocations.IsRecycleBin(tabState.CurrentLocationValue))
-                {
-                    _recycleBin.DeletePermanently(list.ResolveTargetTokens(), OwnerHwnd);
-                    tabState.RequestRefresh();
-                }
-                else
-                {
-                    _ = _fileOps.DeletePermanentAsync(list, tabState, OwnerHwnd);
-                }
+            case AppAction.GoToHistory h:
+                ExecuteHistory(h.Argument, tabState);
                 break;
-            case "restore-recyclebin":
-                if (KnownLocations.IsRecycleBin(tabState.CurrentLocationValue))
-                {
-                    _recycleBin.Restore(list.ResolveTargetTokens());
-                    tabState.RequestRefresh();
-                }
-                else
-                {
-                    tabState.SetStatusMessage(
-                        "restore-recyclebin: only available in the Recycle Bin"
-                    );
-                }
+            case AppAction.CopyMove cm:
+                return ExecuteCopyMove(cm.Arguments, list, tabState, cm.Move);
+            case AppAction.MakeDir md:
+                _ = _fileOps.MkdirAsync(tabState, md.Argument, OwnerHwnd);
                 break;
-            case "empty-recyclebin":
-                _recycleBin.Empty(OwnerHwnd);
-                tabState.RequestRefresh();
+            case AppAction.NewFile nf:
+                ExecuteNewFile(nf.Argument, tabState, nf.MakeParents);
                 break;
-            case "history":
-                ExecuteHistory(args, tabState);
+            case AppAction.RenameTo rt:
+                ExecuteRename(rt.NewName, list, tabState);
                 break;
-            case "loadall":
-                // Re-list the current folder with no time budget — completes a folder
-                // that the timed listing truncated (see the truncation status message).
-                list.LoadAll();
+            case AppAction.CopyPaths cp:
+                ExecuteClipPath(cp.Arguments ?? "", list, tabState);
                 break;
-            case "mkdir":
-                _ = _fileOps.MkdirAsync(tabState, args, OwnerHwnd);
+            case AppAction.SetOption so:
+                ExecuteSet(so.Arguments, tabState);
                 break;
-            case "touch":
-                ExecuteNewFile(args, tabState, makeParents: false);
+            case AppAction.OpenTerminal t:
+                ExecuteTerminal(t.Argument, tabState);
                 break;
-            case "newfile":
-                ExecuteNewFile(args, tabState, makeParents: true);
+            case AppAction.MakeShortcut ms:
+                ExecuteMkShortcut(ms.Arguments, tabState);
                 break;
-            case "rename":
-                ExecuteRename(args, list, tabState);
+            case AppAction.ShowProperties p:
+                ExecuteProperties(p.Arguments, list, tabState);
                 break;
-            case "cp":
-                return ExecuteCopyMove(args, list, tabState, move: false);
-            case "mv":
-                return ExecuteCopyMove(args, list, tabState, move: true);
-            case "special":
-                ExecuteSpecial(args, tabState);
+            case AppAction.OpenWith ow:
+                ExecuteOpenWith(ow.Arguments, list, tabState);
                 break;
-            case "clippath":
-                ExecuteClipPath(args, list, tabState);
+            case AppAction.Zip z:
+                ExecuteZip(z.Argument, list, tabState);
                 break;
-            case "undo":
-                _ = _operationHistory.UndoAsync();
+            case AppAction.Unzip uz:
+                ExecuteUnzip(uz.Argument, list, tabState);
                 break;
-            case "redo":
-                _ = _operationHistory.RedoAsync();
+            case AppAction.Pin pin:
+                ExecutePin(pin.Argument, list, tabState);
                 break;
-            case "search":
-                EnterSearchOrFilter(args, tabState, filter: false);
+            case AppAction.RunExternal ext:
+                ExecuteExternal(ext.CommandLine, tabState);
                 break;
-            case "filter":
-                EnterSearchOrFilter(args, tabState, filter: true);
+            case AppAction.ShowHelp h:
+                ExecuteHelp(h.Topic);
                 break;
-            case "set":
-                ExecuteSet(args, tabState);
+            case AppAction.EnterSearch es:
+                EnterSearchOrFilter(es.Query ?? "", tabState, filter: false);
                 break;
-            case "terminal":
-                ExecuteTerminal(args, tabState);
-                break;
-            case "mkshortcut":
-                ExecuteMkShortcut(args, tabState);
-                break;
-            case "properties":
-                ExecuteProperties(args, list, tabState);
-                break;
-            case "openwith":
-                ExecuteOpenWith(args, list, tabState);
-                break;
-            case "zip":
-                ExecuteZip(args, list, tabState);
-                break;
-            case "unzip":
-                ExecuteUnzip(args, list, tabState);
-                break;
-            case "pin":
-                ExecutePin(args, list, tabState);
-                break;
-            case "help":
-                ExecuteHelp(args);
+            case AppAction.EnterFilter ef:
+                EnterSearchOrFilter(ef.Query ?? "", tabState, filter: true);
                 break;
             default:
-                tabState.SetStatusMessage($"Unknown command: {name}");
+                tabState.SetStatusMessage($"Unhandled command action: {action.GetType().Name}");
                 break;
         }
         return null;
@@ -438,7 +378,7 @@ public sealed class CommandExecutor(
         }
         catch (Exception ex)
         {
-            tabState.SetStatusMessage(ex.Message);
+            _errors.Report(tabState, "Launch external program", ex, ("File", file), ("Cwd", cwd));
         }
     }
 
@@ -468,9 +408,9 @@ public sealed class CommandExecutor(
                 Process.Start(psi);
                 return;
             }
-            catch
+            catch (Exception ex)
             {
-                // Try the next terminal.
+                _logger.LogDebug(ex, "Terminal {Exe} unavailable, trying next", exe);
             }
         }
         tabState.SetStatusMessage("Could not open a terminal");
@@ -735,10 +675,7 @@ public sealed class CommandExecutor(
     /// <summary><c>:help [TOPIC]</c> — open the action × input-route reference popup.</summary>
     private static void ExecuteHelp(string topic)
     {
-        HelpWindow window = new Features.Help.HelpWindow(topic)
-        {
-            Owner = Application.Current?.MainWindow,
-        };
+        HelpWindow window = new(topic) { Owner = Application.Current?.MainWindow };
         window.Show();
     }
 

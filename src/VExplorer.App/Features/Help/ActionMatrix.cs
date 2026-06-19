@@ -1,6 +1,6 @@
 namespace VExplorer.App.Features.Help;
 
-/// <summary>One operation and its bindings across the five input routes (原則2).</summary>
+/// <summary>One operation and its bindings across the five input routes.</summary>
 public sealed record ActionRow(
     string Action,
     string Vim,
@@ -14,8 +14,7 @@ public sealed record ActionRow(
 public sealed record ActionTopic(string Title, IReadOnlyList<ActionRow> Rows);
 
 /// <summary>
-/// The operation × input-route table shown by <c>:help</c> — a code projection of
-/// <c>docs/specs/VExplorer_ActionMatrix.md</c>, grouped into topics so the help
+/// The operation × input-route table shown by <c>:help</c>, grouped into topics so the help
 /// window can present it hierarchically. "—" means "no binding".
 /// </summary>
 public static class ActionMatrix
@@ -172,13 +171,17 @@ public static class ActionMatrix
         return result;
     }
 
-    private static bool RowMatches(ActionRow r, string topic) =>
-        Contains(r.Action, topic)
-        || Contains(r.Vim, topic)
-        || Contains(r.Windows, topic)
-        || Contains(r.Command, topic)
-        || Contains(r.Menu, topic);
+    private static bool RowMatches(ActionRow r, string topic)
+    {
+        return Contains(r.Action, topic)
+            || Contains(r.Vim, topic)
+            || Contains(r.Windows, topic)
+            || Contains(r.Command, topic)
+            || Contains(r.Menu, topic);
+    }
 
-    private static bool Contains(string value, string topic) =>
-        value.Contains(topic, StringComparison.OrdinalIgnoreCase);
+    private static bool Contains(string value, string topic)
+    {
+        return value.Contains(topic, StringComparison.OrdinalIgnoreCase);
+    }
 }

@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Runtime.InteropServices;
+using Microsoft.Extensions.Logging;
 using VExplorer.Core.FileSystem;
 using Windows.Win32;
 using Windows.Win32.Foundation;
@@ -13,9 +14,11 @@ namespace VExplorer.Shell.FileSystem;
 /// backing path (the unique <c>$R…</c> file under <c>$Recycle.Bin</c>), which the
 /// source remembers per token so restore / delete can re-find the live item.
 /// </summary>
-public sealed class RecycleBinShell : IRecycleBinSource
+public sealed class RecycleBinShell(ILogger<RecycleBinShell> logger) : IRecycleBinSource
 {
-    // ssfBITBUCKET: the Recycle Bin special folder for Shell.NameSpace.
+    private readonly ILogger<RecycleBinShell> _logger = logger;
+
+    // ssfBITBUCKET — the Recycle Bin special folder for Shell.NameSpace.
     private const int SsfBitBucket = 10;
 
     // Recycle Bin detail columns (stable on Windows 10/11).
@@ -69,9 +72,10 @@ public sealed class RecycleBinShell : IRecycleBinSource
                 token++;
             }
         }
-        catch
+        catch (Exception ex)
         {
             // Enumeration failures yield whatever was collected so far.
+            _logger.LogWarning(ex, "Recycle Bin enumeration incomplete");
         }
         finally
         {
@@ -106,9 +110,10 @@ public sealed class RecycleBinShell : IRecycleBinSource
                 InvokeRestore(item);
             }
         }
-        catch
+        catch (Exception ex)
         {
             // Best effort; leave un-restored items in place.
+            _logger.LogWarning(ex, "Recycle Bin restore incomplete");
         }
         finally
         {
@@ -134,9 +139,10 @@ public sealed class RecycleBinShell : IRecycleBinSource
                     File.Delete(path);
                 }
             }
-            catch
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
                 // Skip items that cannot be removed (in use / access denied).
+                _logger.LogWarning(ex, "Could not permanently delete {Path}", path);
             }
         }
     }
@@ -148,6 +154,8 @@ public sealed class RecycleBinShell : IRecycleBinSource
         PInvoke.SHEmptyRecycleBin(new HWND(ownerHwnd), null, 0);
         _byToken.Clear();
     }
+
+    // Helpers
 
     private HashSet<string> ResolvePaths(IReadOnlyList<int> tokens)
     {

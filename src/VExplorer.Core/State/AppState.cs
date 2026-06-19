@@ -5,7 +5,7 @@ namespace VExplorer.Core.State;
 public sealed class AppState(Settings? initialSettings = null) : IDisposable
 {
     private readonly ReactiveProperty<Guid> _activeTabId = new(Guid.Empty);
-    private readonly ReactiveProperty<Settings> _settings = new ReactiveProperty<Settings>(
+    private readonly ReactiveProperty<Settings> _settings = new(
         initialSettings ?? Settings.Default
     );
 

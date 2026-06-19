@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Runtime.InteropServices;
+using Microsoft.Extensions.Logging;
 using VExplorer.Core.FileSystem;
 using Windows.Win32;
 using Windows.Win32.Foundation;
@@ -19,8 +20,10 @@ namespace VExplorer.Shell.FileSystem;
 /// used by the listers. The async signatures are kept for call-site uniformity.
 /// </para>
 /// </summary>
-public sealed class WindowsShellFileOps : IShellFileOps
+public sealed class WindowsShellFileOps(ILogger<WindowsShellFileOps> logger) : IShellFileOps
 {
+    private readonly ILogger<WindowsShellFileOps> _logger = logger;
+
     // CLSID_FileOperation. Used with CoCreateInstance (coclass activation via
     // CsWin32 is not relied upon).
     private static readonly Guid CLSID_FileOperation = new("3ad05575-8857-4850-9277-11b85bdb8e09");
@@ -201,7 +204,7 @@ public sealed class WindowsShellFileOps : IShellFileOps
         );
     }
 
-    private static ShellOpResult Run(
+    private ShellOpResult Run(
         FILEOPERATION_FLAGS flags,
         nint ownerHwnd,
         Action<IFileOperation> queue
@@ -246,6 +249,11 @@ public sealed class WindowsShellFileOps : IShellFileOps
         catch (Exception ex)
         {
             // Never let a shell failure crash the app — surface readable text.
+            _logger.LogWarning(
+                ex,
+                "Shell file operation failed (HResult={HResult})",
+                $"0x{ex.HResult:X8}"
+            );
             return ShellOpResult.Fail(Humanize(ex));
         }
         finally

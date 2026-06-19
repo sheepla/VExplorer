@@ -7,7 +7,7 @@ namespace VExplorer.Shell.FileSystem;
 /// root and virtual destinations (Recycle Bin, Network) are handled via
 /// <see cref="ILocationService"/>; special "place" folders are resolved to their
 /// physical path and, like every filesystem location, delegated to the inner
-/// physical lister. See <c>VExplorer_SpecialFolders.md</c>.
+/// physical lister.
 /// </summary>
 public sealed class VirtualDirectoryLister(
     IDirectoryLister physical,

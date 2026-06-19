@@ -1,12 +1,13 @@
 using System.Diagnostics;
 using System.Runtime.InteropServices;
+using Microsoft.Extensions.Logging;
 using VExplorer.Core.FileSystem;
 
 namespace VExplorer.Shell.FileSystem;
 
 /// <summary>
 /// Extracts items from the Windows shell <c>IContextMenu</c> into the abstract
-/// <see cref="ShellMenuItem"/> model (8章). The menu is never drawn by the shell:
+/// <see cref="ShellMenuItem"/> model. The menu is never drawn by the shell:
 /// we let it populate an off-screen <c>HMENU</c> via <c>QueryContextMenu</c>, read the
 /// entries with <c>GetMenuItemInfoW</c>, and send the chosen command back with
 /// <c>InvokeCommand</c> — so the WPF MENU mode can drive every entry with hjkl.
@@ -17,8 +18,11 @@ namespace VExplorer.Shell.FileSystem;
 /// generated COM marshalling does not express cleanly. Must run on the STA UI thread.
 /// </para>
 /// </summary>
-public sealed class WindowsShellContextMenu : IShellContextMenu
+public sealed class WindowsShellContextMenu(ILogger<WindowsShellContextMenu> logger)
+    : IShellContextMenu
 {
+    private readonly ILogger<WindowsShellContextMenu> _logger = logger;
+
     public IShellMenuSession? OpenForItems(IReadOnlyList<string> paths, nint ownerHwnd)
     {
         if (paths.Count == 0)
@@ -69,7 +73,11 @@ public sealed class WindowsShellContextMenu : IShellContextMenu
         }
         catch (Exception ex)
         {
-            Trace.WriteLine($"OpenForItems failed: {ex.Message}");
+            _logger.LogWarning(
+                ex,
+                "Failed to open shell context menu for {Count} item(s)",
+                paths.Count
+            );
             return null;
         }
         finally
@@ -125,15 +133,16 @@ public sealed class WindowsShellContextMenu : IShellContextMenu
         }
         catch (Exception ex)
         {
-            Trace.WriteLine($"OpenForFolderBackground failed: {ex.Message}");
+            _logger.LogWarning(ex, "Failed to open shell background menu for {Folder}", folderPath);
             return null;
         }
     }
 
     /// <summary>Wraps a freshly bound IContextMenu pointer in a session and queries it.</summary>
-    private static ShellMenuSession? BuildSession(nint cmPtr, nint ownerHwnd)
+    private ShellMenuSession? BuildSession(nint cmPtr, nint ownerHwnd)
     {
-        var cm = (IContextMenu)Marshal.GetObjectForIUnknown(cmPtr);
+        long startTimestamp = Stopwatch.GetTimestamp();
+        IContextMenu cm = (IContextMenu)Marshal.GetObjectForIUnknown(cmPtr);
         Marshal.Release(cmPtr);
 
         nint hmenu = CreatePopupMenu();
@@ -156,7 +165,13 @@ public sealed class WindowsShellContextMenu : IShellContextMenu
             Marshal.ReleaseComObject(cm);
             return null;
         }
-        return new ShellMenuSession(cm, hmenu, ownerHwnd);
+        ShellMenuSession session = new(cm, hmenu, ownerHwnd, _logger);
+        _logger.LogDebug(
+            "Extracted {Count} shell menu items in {ElapsedMs}ms",
+            session.TopLevelItems.Count,
+            Stopwatch.GetElapsedTime(startTimestamp).TotalMilliseconds
+        );
+        return session;
     }
 
     private static void AssertSta()
@@ -167,6 +182,8 @@ public sealed class WindowsShellContextMenu : IShellContextMenu
         );
     }
 
+    // Session
+
     private sealed class ShellMenuSession : IShellMenuSession
     {
         private readonly record struct ItemRef(int ShellCmd, nint SubMenu);
@@ -174,15 +191,17 @@ public sealed class WindowsShellContextMenu : IShellContextMenu
         private readonly IContextMenu _cm;
         private readonly nint _hmenu;
         private readonly nint _ownerHwnd;
+        private readonly ILogger _logger;
         private readonly Dictionary<int, ItemRef> _items = [];
         private int _nextToken;
         private bool _disposed;
 
-        public ShellMenuSession(IContextMenu cm, nint hmenu, nint ownerHwnd)
+        public ShellMenuSession(IContextMenu cm, nint hmenu, nint ownerHwnd, ILogger logger)
         {
             _cm = cm;
             _hmenu = hmenu;
             _ownerHwnd = ownerHwnd;
+            _logger = logger;
             TopLevelItems = Walk(hmenu);
         }
 
@@ -216,7 +235,11 @@ public sealed class WindowsShellContextMenu : IShellContextMenu
             }
             catch (Exception ex)
             {
-                Trace.WriteLine($"InvokeCommand failed: {ex.Message}");
+                _logger.LogWarning(
+                    ex,
+                    "Shell menu InvokeCommand failed for command {ShellCmd}",
+                    r.ShellCmd
+                );
                 return false;
             }
         }
@@ -342,7 +365,7 @@ public sealed class WindowsShellContextMenu : IShellContextMenu
         }
     }
 
-    // ── Native interop ─────────────────────────────────────────────────────────
+    // Native interop
 
     private const uint IdCmdFirst = 1;
     private const uint IdCmdLast = 0x7FFF;

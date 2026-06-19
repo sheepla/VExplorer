@@ -80,9 +80,20 @@ public sealed class AddressBarViewModel : CompletionEditorViewModel
         }
         else
         {
-            // Do not move; leave the buffer intact so it can be edited.
-            TabState.SetStatusMessage($"Path not found: {target}");
+            // Do not move; leave the buffer intact so it can be edited. A UNC path
+            // that fails to resolve is usually unreachable or needs credentials
+            // (handled by Windows) rather than simply non-existent — say so.
+            string message = IsUncPath(target)
+                ? $"Cannot reach network path (check the share name or your credentials): {target}"
+                : $"Path not found: {target}";
+            TabState.SetStatusMessage(message);
         }
+    }
+
+    private static bool IsUncPath(string path)
+    {
+        return path.StartsWith(@"\\", StringComparison.Ordinal)
+            || path.StartsWith("//", StringComparison.Ordinal);
     }
 
     protected override void OnDispose()

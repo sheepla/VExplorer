@@ -89,7 +89,7 @@ public abstract partial class CompletionEditorViewModel : ObservableObject, IDis
             .Subscribe(result => ShowCandidates(result.query, result.list));
     }
 
-    // ── Subclass contract ───────────────────────────────────────────────────
+    // Subclass contract
 
     /// <summary>Whether <paramref name="mode"/> is this editor's active mode.</summary>
     protected abstract bool IsActiveMode(Mode mode);
@@ -119,7 +119,7 @@ public abstract partial class CompletionEditorViewModel : ObservableObject, IDis
     /// <summary>Hook for subclasses to dispose extra resources.</summary>
     protected virtual void OnDispose() { }
 
-    // ── Text input ──────────────────────────────────────────────────────────
+    // Text input
 
     partial void OnTextChanged(string value)
     {
@@ -133,7 +133,7 @@ public abstract partial class CompletionEditorViewModel : ObservableObject, IDis
         _querySubject.OnNext(value);
     }
 
-    // ── Tab cycling / candidate navigation ──────────────────────────────────
+    // Tab cycling / candidate navigation
 
     public void CycleNext()
     {
@@ -209,7 +209,7 @@ public abstract partial class CompletionEditorViewModel : ObservableObject, IDis
         Text = sep >= 0 ? t[..(sep + 1)] : "";
     }
 
-    // ── Confirm / cancel / enter ─────────────────────────────────────────────
+    // Confirm / cancel / enter
 
     public void Confirm()
     {
@@ -230,7 +230,7 @@ public abstract partial class CompletionEditorViewModel : ObservableObject, IDis
         }
     }
 
-    // ── State plumbing ───────────────────────────────────────────────────────
+    // State plumbing
 
     private void OnModeChanged(Mode mode)
     {

@@ -1,18 +1,20 @@
 namespace VExplorer.Core.Modes;
 
-public static class ModeMachine
+public static class ModeStateMachine
 {
     public static Mode Transition(Mode current, ModeEvent @event)
     {
         return (current, @event) switch
         {
-            // Normal → submodes
-            (Mode.Normal, ModeEvent.EnterVisual e) => new Mode.Visual(e.AnchorIndex),
-            (Mode.Normal, ModeEvent.EnterSearch) => new Mode.Search("", false),
-            (Mode.Normal, ModeEvent.EnterFilter) => new Mode.Filter("", false),
-            (Mode.Normal, ModeEvent.EnterCommand) => new Mode.Command(""),
-            (Mode.Normal, ModeEvent.EnterAddress) => new Mode.Address(""),
-            (Mode.Normal, ModeEvent.OpenMenu) => new Mode.Menu(),
+            // Any mode → submode. Entering a submode from another submode is
+            // allowed and discards the previous one; callers (the file list /
+            // input bars) reconcile the side effects of leaving the old mode.
+            (_, ModeEvent.EnterVisual e) => new Mode.Visual(e.AnchorIndex),
+            (_, ModeEvent.EnterSearch) => new Mode.Search("", false),
+            (_, ModeEvent.EnterFilter) => new Mode.Filter("", false),
+            (_, ModeEvent.EnterCommand) => new Mode.Command(""),
+            (_, ModeEvent.EnterAddress) => new Mode.Address(""),
+            (_, ModeEvent.OpenMenu) => new Mode.Menu(),
 
             // ExitToNormal: submode → Normal, Normal → no-op
             (Mode.Normal, ModeEvent.ExitToNormal) => current,

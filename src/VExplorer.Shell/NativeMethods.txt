@@ -16,3 +16,4 @@ SHObjectProperties
 SHOpenWithDialog
 OPENASINFO
 OPEN_AS_INFO_FLAGS
+GetCursorPos

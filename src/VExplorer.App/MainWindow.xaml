@@ -14,78 +14,63 @@
   Height="600"
   Width="1000"
   KeyboardNavigation.TabNavigation="None"
+  Background="{DynamicResource WindowBackground}"
+  Foreground="{DynamicResource ForegroundBrush}"
 >
   <DockPanel>
     <!-- Tab strip at the very top; the single address bar below reflects the active tab. -->
     <tabs:TabBar DockPanel.Dock="Top" DataContext="{Binding TabBar}" />
-
     <!-- Toolbar row: navigation icons | address bar | mode icons. -->
     <DockPanel DockPanel.Dock="Top" Margin="0,0,0,1">
-      <DockPanel.Resources>
-        <Style x:Key="IconButton" TargetType="Button">
-          <Setter Property="FontFamily" Value="Segoe MDL2 Assets" />
-          <Setter Property="FontSize" Value="14" />
-          <Setter Property="Width" Value="28" />
-          <Setter Property="Height" Value="26" />
-          <Setter Property="Padding" Value="0" />
-          <Setter Property="BorderThickness" Value="0" />
-          <Setter Property="Background" Value="Transparent" />
-          <Setter Property="Foreground" Value="#444444" />
-        </Style>
-      </DockPanel.Resources>
-
       <StackPanel DockPanel.Dock="Left" Orientation="Horizontal" Margin="0,0,4,0">
         <Button
           Style="{StaticResource IconButton}"
-          Content="&#xE76B;"
+          Content=""
           ToolTip="Back"
           Click="NavBack_Click"
         />
         <Button
           Style="{StaticResource IconButton}"
-          Content="&#xE76C;"
+          Content=""
           ToolTip="Forward"
           Click="NavForward_Click"
         />
         <Button
           Style="{StaticResource IconButton}"
-          Content="&#xE70E;"
+          Content=""
           ToolTip="Up"
           Click="NavParent_Click"
         />
         <Button
           Style="{StaticResource IconButton}"
-          Content="&#xE80F;"
+          Content=""
           ToolTip="Home"
           Click="NavHome_Click"
         />
         <Button
           Style="{StaticResource IconButton}"
-          Content="&#xE72C;"
+          Content=""
           ToolTip="Reload"
           Click="NavReload_Click"
         />
       </StackPanel>
-
       <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Margin="4,0,0,0">
         <Button
           Style="{StaticResource IconButton}"
-          Content="&#xE71C;"
+          Content=""
           ToolTip="Filter (f)"
           Click="OpenFilter_Click"
         />
         <Button
           Style="{StaticResource IconButton}"
-          Content="&#xE721;"
+          Content=""
           ToolTip="Search (/)"
           Click="OpenSearch_Click"
         />
       </StackPanel>
-
       <!-- Always-visible address bar (fills remaining width). -->
       <addr:AddressBar x:Name="AddressBarControl" DataContext="{Binding AddressBar}" />
     </DockPanel>
-
     <!-- Thin loading indicator just under the toolbar; shown only while the active
          tab is (re-)listing (e.g. a large folder still enumerating). -->
     <ProgressBar
@@ -95,9 +80,8 @@
       Visibility="{Binding IsLoading, Converter={StaticResource BoolToVisibility}}"
       BorderThickness="0"
       Background="Transparent"
-      Foreground="#0078D4"
+      Foreground="{DynamicResource AccentBrush}"
     />
-
     <!-- Command bar (Vim-style ":") docks at the very bottom; hidden unless active.
          Declared before the StatusBar so it docks below it. -->
     <cmd:CommandBar
@@ -105,14 +89,12 @@
       DockPanel.Dock="Bottom"
       DataContext="{Binding CommandBar}"
     />
-
     <!-- SEARCH ("/") / FILTER (Shift+F) one-line bar; hidden unless active. -->
     <search:SearchFilterBar
       x:Name="SearchFilterBarControl"
       DockPanel.Dock="Bottom"
       DataContext="{Binding SearchFilterBar}"
     />
-
     <StatusBar DockPanel.Dock="Bottom">
       <StatusBarItem>
         <TextBlock
@@ -125,13 +107,16 @@
       </StatusBarItem>
       <Separator />
       <StatusBarItem>
-        <!-- Errors shown in red; informational messages use the default colour. -->
+        <!-- Errors shown in red, warnings highlighted; info uses the default colour. -->
         <TextBlock Text="{Binding StatusBar.StatusText}">
           <TextBlock.Style>
             <Style TargetType="TextBlock">
               <Style.Triggers>
-                <DataTrigger Binding="{Binding StatusBar.IsError}" Value="True">
-                  <Setter Property="Foreground" Value="#CC3333" />
+                <DataTrigger Binding="{Binding StatusBar.Severity}" Value="Warning">
+                  <Setter Property="Foreground" Value="{DynamicResource WarningBrush}" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding StatusBar.Severity}" Value="Error">
+                  <Setter Property="Foreground" Value="{DynamicResource ErrorBrush}" />
                 </DataTrigger>
               </Style.Triggers>
             </Style>
@@ -140,10 +125,12 @@
       </StatusBarItem>
       <!-- Right-aligned item/selection count. -->
       <StatusBarItem HorizontalAlignment="Right">
-        <TextBlock Text="{Binding StatusBar.CountDisplay}" Foreground="#666666" />
+        <TextBlock
+          Text="{Binding StatusBar.CountDisplay}"
+          Foreground="{DynamicResource SecondaryForegroundBrush}"
+        />
       </StatusBarItem>
     </StatusBar>
-
     <Grid>
       <Grid.ColumnDefinitions>
         <ColumnDefinition Width="200" MinWidth="80" />
@@ -153,7 +140,6 @@
         <ColumnDefinition Width="0" />
         <ColumnDefinition Width="0" MinWidth="0" />
       </Grid.ColumnDefinitions>
-
       <!--
         Border highlights the focused panel with a thin blue outline.
         HorizontalScrollBarVisibility=Disabled keeps text left-aligned and
@@ -165,7 +151,7 @@
             <Setter Property="BorderBrush" Value="Transparent" />
             <Style.Triggers>
               <DataTrigger Binding="{Binding IsTreeFocused}" Value="True">
-                <Setter Property="BorderBrush" Value="#0078D4" />
+                <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
               </DataTrigger>
             </Style.Triggers>
           </Style>
@@ -181,24 +167,19 @@
           Drop="FileTree_Drop"
           VirtualizingPanel.IsVirtualizing="False"
           ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+          Background="{DynamicResource SurfaceBackground}"
+          Foreground="{DynamicResource ForegroundBrush}"
+          BorderThickness="0"
         >
-          <!-- Selection stays blue+white even when the panel is unfocused (Win10 style). -->
-          <TreeView.Resources>
-            <SolidColorBrush x:Key="{x:Static SystemColors.HighlightBrushKey}" Color="#0078D7" />
-            <SolidColorBrush x:Key="{x:Static SystemColors.HighlightTextBrushKey}" Color="White" />
-            <SolidColorBrush
-              x:Key="{x:Static SystemColors.InactiveSelectionHighlightBrushKey}"
-              Color="#0078D7"
-            />
-            <SolidColorBrush
-              x:Key="{x:Static SystemColors.InactiveSelectionHighlightTextBrushKey}"
-              Color="White"
-            />
-          </TreeView.Resources>
+          <!-- Selection (blue+white, focus-independent) comes from the SystemColors
+               overrides defined in the active theme dictionary. -->
           <TreeView.ItemContainerStyle>
             <Style TargetType="TreeViewItem">
               <Setter Property="IsExpanded" Value="{Binding IsExpanded, Mode=TwoWay}" />
               <Setter Property="IsSelected" Value="{Binding IsSelected, Mode=TwoWay}" />
+              <!-- Explicit foreground beats the theme style's default (black);
+                   the template's selection trigger still wins for white-on-blue. -->
+              <Setter Property="Foreground" Value="{DynamicResource ForegroundBrush}" />
             </Style>
           </TreeView.ItemContainerStyle>
           <TreeView.ItemTemplate>
@@ -219,9 +200,12 @@
           </TreeView.ItemTemplate>
         </TreeView>
       </Border>
-
-      <GridSplitter Grid.Column="1" Width="5" HorizontalAlignment="Stretch" Background="#DDDDDD" />
-
+      <GridSplitter
+        Grid.Column="1"
+        Width="5"
+        HorizontalAlignment="Stretch"
+        Background="{DynamicResource SplitterBrush}"
+      />
       <!-- Border highlights the focused List panel. -->
       <Border Grid.Column="2" BorderThickness="1" Padding="0">
         <Border.Style>
@@ -229,7 +213,7 @@
             <Setter Property="BorderBrush" Value="Transparent" />
             <Style.Triggers>
               <DataTrigger Binding="{Binding IsListFocused}" Value="True">
-                <Setter Property="BorderBrush" Value="#0078D4" />
+                <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
               </DataTrigger>
             </Style.Triggers>
           </Style>
@@ -240,7 +224,9 @@
           SelectedIndex="{Binding FileList.CursorIndex, Mode=TwoWay}"
           PreviewMouseDown="FileList_PreviewMouseDown"
           PreviewMouseMove="FileList_PreviewMouseMove"
+          PreviewMouseLeftButtonUp="FileList_PreviewMouseLeftButtonUp"
           PreviewMouseRightButtonUp="FileList_PreviewMouseRightButtonUp"
+          GiveFeedback="FileList_GiveFeedback"
           MouseDoubleClick="FileList_MouseDoubleClick"
           GridViewColumnHeader.Click="FileList_ColumnHeader_Click"
           AllowDrop="True"
@@ -249,34 +235,13 @@
           VirtualizingPanel.IsVirtualizing="True"
           VirtualizingPanel.VirtualizationMode="Recycling"
           ScrollViewer.CanContentScroll="True"
+          Background="{DynamicResource SurfaceBackground}"
+          BorderThickness="0"
+          ItemContainerStyle="{StaticResource FileListItemStyle}"
         >
-          <!-- Selection stays blue+white even when the panel is unfocused (Win10 style). -->
-          <ListView.Resources>
-            <SolidColorBrush x:Key="{x:Static SystemColors.HighlightBrushKey}" Color="#0078D7" />
-            <SolidColorBrush x:Key="{x:Static SystemColors.HighlightTextBrushKey}" Color="White" />
-            <SolidColorBrush
-              x:Key="{x:Static SystemColors.InactiveSelectionHighlightBrushKey}"
-              Color="#0078D7"
-            />
-            <SolidColorBrush
-              x:Key="{x:Static SystemColors.InactiveSelectionHighlightTextBrushKey}"
-              Color="White"
-            />
-          </ListView.Resources>
-          <!-- Multi-selection highlight (distinct from the single cursor row). -->
-          <ListView.ItemContainerStyle>
-            <Style TargetType="ListViewItem">
-              <Style.Triggers>
-                <DataTrigger Binding="{Binding IsSelected}" Value="True">
-                  <Setter Property="Background" Value="#CCE4F7" />
-                </DataTrigger>
-                <!-- Hidden / system files render dimmed (Explorer-style ghosting). -->
-                <DataTrigger Binding="{Binding IsDimmed}" Value="True">
-                  <Setter Property="Foreground" Value="#FF8A8A8A" />
-                </DataTrigger>
-              </Style.Triggers>
-            </Style>
-          </ListView.ItemContainerStyle>
+          <!-- Cursor row = blue+white; multi-select set = light blue; hidden/system
+               dimmed. All handled by FileListItemStyle (Themes/Shared.xaml), which
+               replaces the Aero2 template so colours stay theme-consistent. -->
           <ListView.View>
             <GridView>
               <!-- Name column -->
@@ -326,7 +291,6 @@
                   </DataTemplate>
                 </GridViewColumn.CellTemplate>
               </GridViewColumn>
-
               <!-- Size column — right-aligned -->
               <GridViewColumn Width="80">
                 <GridViewColumn.Header>
@@ -343,7 +307,6 @@
                   </DataTemplate>
                 </GridViewColumn.CellTemplate>
               </GridViewColumn>
-
               <!-- Modified column -->
               <GridViewColumn Width="160">
                 <GridViewColumn.Header>
@@ -355,7 +318,6 @@
                   </DataTemplate>
                 </GridViewColumn.CellTemplate>
               </GridViewColumn>
-
               <!-- Type column -->
               <GridViewColumn Width="110">
                 <GridViewColumn.Header>
@@ -371,7 +333,6 @@
           </ListView.View>
         </ListView>
       </Border>
-
       <!-- MENU mode: hjkl-navigable context menu. Keys are handled by the window;
            the list only renders the current level (SelectedIndex = cursor). A Popup
            is not laid out in the Grid, so its column is irrelevant. -->
@@ -396,8 +357,8 @@
           <ItemsControl.ItemTemplate>
             <DataTemplate>
               <Border
-                Background="White"
-                BorderBrush="#999999"
+                Background="{DynamicResource MenuBackground}"
+                BorderBrush="{DynamicResource MenuBorderBrush}"
                 BorderThickness="1"
                 Padding="2"
                 Margin="0,0,1,0"
@@ -409,6 +370,7 @@
                   SelectedIndex="{Binding SelectedIndex, Mode=TwoWay}"
                   Focusable="False"
                   BorderThickness="0"
+                  Background="Transparent"
                   ScrollViewer.HorizontalScrollBarVisibility="Disabled"
                   PreviewMouseLeftButtonUp="ContextMenuList_MouseUp"
                   SelectionChanged="ContextMenuList_SelectionChanged"
@@ -422,7 +384,10 @@
                           <Setter Property="Focusable" Value="False" />
                         </DataTrigger>
                         <DataTrigger Binding="{Binding IsEnabled}" Value="False">
-                          <Setter Property="Foreground" Value="#9A9A9A" />
+                          <Setter
+                            Property="Foreground"
+                            Value="{DynamicResource MenuDisabledForeground}"
+                          />
                         </DataTrigger>
                       </Style.Triggers>
                     </Style>
@@ -434,7 +399,7 @@
                         <Border
                           Height="1"
                           Margin="6,4"
-                          Background="#D0D0D0"
+                          Background="{DynamicResource MenuSeparatorBrush}"
                           Visibility="{Binding IsSeparator, Converter={StaticResource BoolToVisibility}}"
                         />
                         <StackPanel
@@ -451,7 +416,7 @@
                           <TextBlock Text="{Binding Text}" VerticalAlignment="Center" />
                           <TextBlock
                             Text="  ▶"
-                            Foreground="#888888"
+                            Foreground="{DynamicResource SubmenuArrowBrush}"
                             VerticalAlignment="Center"
                             Visibility="{Binding HasSubmenu, Converter={StaticResource BoolToVisibility}}"
                           />
@@ -465,21 +430,23 @@
           </ItemsControl.ItemTemplate>
         </ItemsControl>
       </Popup>
-
       <GridSplitter
         Grid.Column="3"
         Width="5"
         HorizontalAlignment="Stretch"
-        Background="#DDDDDD"
+        Background="{DynamicResource SplitterBrush}"
         Visibility="Collapsed"
       />
-
-      <Border Grid.Column="4" Background="#DDDDDD" Visibility="Collapsed">
+      <Border
+        Grid.Column="4"
+        Background="{DynamicResource SurfaceBackground}"
+        Visibility="Collapsed"
+      >
         <TextBlock
           Text="Preview"
           HorizontalAlignment="Center"
           VerticalAlignment="Center"
-          Foreground="#AAAAAA"
+          Foreground="{DynamicResource SecondaryForegroundBrush}"
           FontSize="14"
         />
       </Border>

@@ -14,8 +14,25 @@ namespace VExplorer.App.Features.FileList;
 /// </summary>
 public static class HighlightBehavior
 {
-    private static readonly Brush MatchBackground = CreateFrozen(Color.FromRgb(0xFF, 0xF1, 0x76));
-    private static readonly Brush MatchForeground = CreateFrozen(Color.FromRgb(0x00, 0x00, 0x00));
+    private static readonly Brush FallbackMatchBackground = CreateFrozen(
+        Color.FromRgb(0xFF, 0xF1, 0x76)
+    );
+    private static readonly Brush FallbackMatchForeground = CreateFrozen(
+        Color.FromRgb(0x00, 0x00, 0x00)
+    );
+
+    /// <summary>
+    /// Match colours are pulled from the active theme (Themes/Theme.*.xaml) so the
+    /// highlight stays legible in both light and dark, falling back to the light
+    /// defaults if the resources are missing.
+    /// </summary>
+    private static Brush MatchBackground =>
+        Application.Current?.TryFindResource("MatchHighlightBackground") as Brush
+        ?? FallbackMatchBackground;
+
+    private static Brush MatchForeground =>
+        Application.Current?.TryFindResource("MatchHighlightForeground") as Brush
+        ?? FallbackMatchForeground;
 
     public static readonly DependencyProperty TextProperty = DependencyProperty.RegisterAttached(
         "Text",

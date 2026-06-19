@@ -2,7 +2,7 @@ namespace VExplorer.Core.FileSystem;
 
 /// <summary>
 /// Creates Windows <c>.lnk</c> shortcuts via the shell (<c>IShellLink</c>),
-/// rather than writing the binary format by hand (原則3: OS 委譲).
+/// rather than writing the binary format by hand.
 /// Used by <c>:mkshortcut</c> and <c>:pin start</c> / <c>:pin desktop</c>.
 /// </summary>
 public interface IShortcutService

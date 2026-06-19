@@ -57,12 +57,14 @@ public interface IShellMenuSession : IDisposable
 
 /// <summary>
 /// Opens shell context menus and exposes their items as an abstract model so the MENU-mode
-/// ViewModel can drive <c>hjkl</c> navigation without the shell drawing anything. Implemented in the Shell layer.
+/// ViewModel can drive <c>hjkl</c> navigation without the shell drawing anything.
+/// Implemented in the Shell layer.
 /// </summary>
 public interface IShellContextMenu
 {
     /// <summary>
-    /// The context menu for <paramref name="paths"/>. Returns null when none can be resolved.
+    /// The context menu for <paramref name="paths"/> (already resolved:
+    /// selection else cursor). Returns null when none can be resolved.
     /// </summary>
     IShellMenuSession? OpenForItems(IReadOnlyList<string> paths, nint ownerHwnd);
 
